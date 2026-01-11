@@ -35,6 +35,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cbcruk/mohyung.git"
+  },
+  "homepage": "https://github.com/cbcruk/mohyung#readme",
+  "bugs": {
+    "url": "https://github.com/cbcruk/mohyung/issues"
+  },
   "engines": {
     "node": ">=18.0.0"
   },
