@@ -7,7 +7,7 @@ import { consola } from './utils/logger.js'
 const program = new Command()
 
 program
-  .name('nmsnap')
+  .name('mohyung')
   .description('Snapshot and restore node_modules as a single SQLite file')
   .version('0.1.0')
 

@@ -1,4 +1,4 @@
-# nmsnap
+# mohyung
 
 Snapshot and restore node_modules as a single SQLite file.
 
@@ -12,9 +12,9 @@ Snapshot and restore node_modules as a single SQLite file.
 ## Installation
 
 ```bash
-npm install -g nmsnap
+npm install -g mohyung
 # or
-pnpm add -g nmsnap
+pnpm add -g mohyung
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ pnpm add -g nmsnap
 ### pack - Snapshot node_modules into DB
 
 ```bash
-nmsnap pack [options]
+mohyung pack [options]
 
 Options:
   -s, --source <path>       node_modules path (default: "./node_modules")
@@ -35,19 +35,19 @@ Options:
 
 ```bash
 # Basic usage
-nmsnap pack
+mohyung pack
 
 # Custom paths
-nmsnap pack -s ./my-project/node_modules -o ./backup.db
+mohyung pack -s ./my-project/node_modules -o ./backup.db
 
 # Maximum compression
-nmsnap pack -c 9
+mohyung pack -c 9
 ```
 
 ### unpack - Restore node_modules from DB
 
 ```bash
-nmsnap unpack [options]
+mohyung unpack [options]
 
 Options:
   -i, --input <path>   input DB file path (default: "./node_modules.db")
@@ -59,19 +59,19 @@ Options:
 
 ```bash
 # Basic restoration
-nmsnap unpack
+mohyung unpack
 
 # Force overwrite
-nmsnap unpack -f
+mohyung unpack -f
 
 # Restore to different location
-nmsnap unpack -o ./restored_modules
+mohyung unpack -o ./restored_modules
 ```
 
 ### status - Compare DB with current state
 
 ```bash
-nmsnap status [options]
+mohyung status [options]
 
 Options:
   --db <path>               DB file path (default: "./node_modules.db")
@@ -81,7 +81,7 @@ Options:
 **Examples:**
 
 ```bash
-nmsnap status
+mohyung status
 ```
 
 **Output:**
@@ -128,7 +128,7 @@ nmsnap status
 ## Library Usage
 
 ```typescript
-import { pack, unpack, status, Store } from 'nmsnap'
+import { pack, unpack, status, Store } from 'mohyung'
 
 // Pack
 await pack({

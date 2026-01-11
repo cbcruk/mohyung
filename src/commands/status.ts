@@ -36,7 +36,7 @@ export async function status(options: StatusOptions): Promise<StatusResult> {
 
   if (!existsSync(nodeModulesPath)) {
     log.warn(`node_modules not found: ${nodeModulesPath}`)
-    log.info('Run "nmsnap unpack" to restore from database.')
+    log.info('Run "mohyung unpack" to restore from database.')
 
     return { onlyInDb: [], onlyInFs: [], modified: [], unchanged: 0 }
   }

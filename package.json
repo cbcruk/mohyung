@@ -1,10 +1,10 @@
 {
-  "name": "nmsnap",
+  "name": "mohyung",
   "version": "0.1.0",
   "description": "Snapshot and restore node_modules as a single SQLite file",
   "type": "module",
   "bin": {
-    "nmsnap": "./dist/cli.js"
+    "mohyung": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
