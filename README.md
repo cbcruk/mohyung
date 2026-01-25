@@ -9,6 +9,8 @@ Snapshot and restore node_modules as a single SQLite file.
 - **Version control friendly**: SQLite format enables binary diff
 - **Content-addressable**: Identical files are stored only once (deduplication)
 
+> 📖 SQLite can be [35% faster than filesystem](https://www.sqlite.org/fasterthanfs.html) for handling many small files due to reduced system call overhead. ([HN discussion](https://news.ycombinator.com/item?id=41085376))
+
 ## Installation
 
 ```bash
