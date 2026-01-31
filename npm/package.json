@@ -1,0 +1,32 @@
+{
+  "name": "mohyung",
+  "version": "0.1.0",
+  "description": "Snapshot and restore node_modules as a single SQLite file",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cbcruk/mohyung"
+  },
+  "bin": {
+    "mohyung": "bin/mohyung"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "files": [
+    "bin",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
