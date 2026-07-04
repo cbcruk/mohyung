@@ -15,6 +15,8 @@ use crate::utils::progress::{create_progress_bar, truncate_message};
 
 const BATCH_SIZE: usize = 512;
 
+pub const LOCKFILE_NAMES: [&str; 3] = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
+
 struct ProcessedFile {
     package_index: usize,
     hash: String,
@@ -77,10 +79,16 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     store.set_metadata("source_path", &node_modules_path.to_string_lossy())?;
 
     if options.include_lockfile {
-        let lockfile_path = node_modules_path.join("..").join("package-lock.json");
-        if lockfile_path.exists() {
-            let content = fs::read_to_string(&lockfile_path)?;
-            store.set_metadata("lockfile_hash", &hash_string(&content))?;
+        if let Some(project_dir) = node_modules_path.parent() {
+            for name in LOCKFILE_NAMES {
+                let lockfile_path = project_dir.join(name);
+                if lockfile_path.exists() {
+                    let content = fs::read_to_string(&lockfile_path)?;
+                    store.set_metadata("lockfile_name", name)?;
+                    store.set_metadata("lockfile_hash", &hash_string(&content))?;
+                    break;
+                }
+            }
         }
     }
 

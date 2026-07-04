@@ -37,7 +37,7 @@ Options:
   -s, --source <path>       node_modules path (default: "./node_modules")
   -o, --output <path>       output DB file path (default: "./node_modules.db")
   -c, --compression <level> compression level 1-9 (default: "6")
-  --include-lockfile        include package-lock.json hash
+  --include-lockfile        record lockfile hash (package-lock.json, pnpm-lock.yaml, or yarn.lock)
 ```
 
 **Examples:**

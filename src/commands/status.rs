@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use walkdir::WalkDir;
 
 use crate::commands::pack::print_box;
-use crate::core::hasher::hash_buffer;
+use crate::core::hasher::{hash_buffer, hash_string};
 use crate::core::scanner::scan_symlinks;
 use crate::core::store::Store;
 use crate::types::StatusResult;
@@ -130,6 +130,22 @@ pub fn status(db: &str, node_modules: &str, verbose: bool) -> Result<StatusResul
         format!("Only in DB: {}", result.only_in_db.len()),
         format!("Only in FS: {}", result.only_in_fs.len()),
     ];
+
+    if let (Some(name), Some(stored_hash)) = (
+        store.get_metadata("lockfile_name")?,
+        store.get_metadata("lockfile_hash")?,
+    ) {
+        let lockfile_path = node_modules_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(&name);
+        let state = match std::fs::read_to_string(&lockfile_path) {
+            Ok(content) if hash_string(&content) == stored_hash => "unchanged",
+            Ok(_) => "CHANGED",
+            Err(_) => "missing",
+        };
+        summary_lines.push(format!("Lockfile ({}): {}", name, state));
+    }
 
     let sections: [(&str, char, &Vec<String>); 3] = [
         ("Modified files:", 'M', &result.modified),
