@@ -30,13 +30,13 @@ struct ProcessedFile {
 
 pub fn pack(options: &PackOptions) -> Result<()> {
     let node_modules_path = Path::new(&options.source).canonicalize()?;
-    let db_path = fs::canonicalize(Path::new(&options.output).parent().unwrap_or(Path::new(".")))
-        .unwrap_or_default()
-        .join(
-            Path::new(&options.output)
-                .file_name()
-                .unwrap_or_default(),
-        );
+    let db_path = fs::canonicalize(
+        Path::new(&options.output)
+            .parent()
+            .unwrap_or(Path::new(".")),
+    )
+    .unwrap_or_default()
+    .join(Path::new(&options.output).file_name().unwrap_or_default());
 
     if !node_modules_path.exists() {
         bail!("node_modules not found: {}", node_modules_path.display());
@@ -45,11 +45,14 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     eprintln!("Scanning {}...", node_modules_path.display());
 
     let scan_pb = create_progress_bar(100);
-    let scan_result = scan_node_modules(&node_modules_path, Some(&|current, total, msg| {
-        scan_pb.set_length(total as u64);
-        scan_pb.set_position(current as u64);
-        scan_pb.set_message(msg.to_string());
-    }))?;
+    let scan_result = scan_node_modules(
+        &node_modules_path,
+        Some(&|current, total, msg| {
+            scan_pb.set_length(total as u64);
+            scan_pb.set_position(current as u64);
+            scan_pb.set_message(msg.to_string());
+        }),
+    )?;
     scan_pb.finish_and_clear();
 
     let links = scan_symlinks(&node_modules_path)?;
@@ -167,14 +170,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
                     deduplicated_count += 1;
                 }
 
-                store::insert_file(
-                    tx,
-                    pkg_id,
-                    &pf.relative_path,
-                    &pf.hash,
-                    pf.mode,
-                    pf.mtime,
-                )?;
+                store::insert_file(tx, pkg_id, &pf.relative_path, &pf.hash, pf.mode, pf.mtime)?;
             }
         }
 
@@ -245,10 +241,5 @@ pub fn print_box(title: &str, lines: &[&str], color: &str) {
             pad = width.saturating_sub(line.len() + 1)
         );
     }
-    eprintln!(
-        "{}└{}┘{}",
-        color,
-        "─".repeat(width),
-        reset
-    );
+    eprintln!("{}└{}┘{}", color, "─".repeat(width), reset);
 }

@@ -150,8 +150,8 @@ pub fn extract_files_parallel(
                 }
 
                 if ef.mtime > 0 {
-                    let mtime = std::time::UNIX_EPOCH
-                        + std::time::Duration::from_millis(ef.mtime as u64);
+                    let mtime =
+                        std::time::UNIX_EPOCH + std::time::Duration::from_millis(ef.mtime as u64);
                     fs::File::options()
                         .write(true)
                         .open(path)

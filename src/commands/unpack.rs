@@ -44,7 +44,10 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
         &[
             &format!("Created: {}", created_at),
             &format!("Files: {}", total_file_count),
-            &format!("Original size: {}", format_bytes(blob_stats.total_original_size)),
+            &format!(
+                "Original size: {}",
+                format_bytes(blob_stats.total_original_size)
+            ),
             &format!(
                 "Compressed size: {}",
                 format_bytes(blob_stats.total_compressed_size)
@@ -57,11 +60,15 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
     let pb = create_progress_bar(total_file_count as u64);
 
     let start = Instant::now();
-    let (total_files, total_size) = extract_files_parallel(&store, output_path, Some(&|current, total, msg| {
-        pb.set_length(total as u64);
-        pb.set_position(current as u64);
-        pb.set_message(msg.to_string());
-    }))?;
+    let (total_files, total_size) = extract_files_parallel(
+        &store,
+        output_path,
+        Some(&|current, total, msg| {
+            pb.set_length(total as u64);
+            pb.set_position(current as u64);
+            pb.set_message(msg.to_string());
+        }),
+    )?;
     restore_empty_dirs(&store, output_path)?;
     let link_count = restore_links(&store, output_path)?;
     let elapsed = start.elapsed().as_secs_f64();
@@ -70,7 +77,11 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
     print_box(
         "Unpack Complete",
         &[
-            &format!("Extracted: {} files ({})", total_files, format_bytes(total_size)),
+            &format!(
+                "Extracted: {} files ({})",
+                total_files,
+                format_bytes(total_size)
+            ),
             &format!("Symlinks: {}", link_count),
             &format!("Time: {:.1}s", elapsed),
         ],

@@ -16,7 +16,7 @@ fn make_executable(path: &Path) {
 }
 
 fn mohyung() -> Command {
-    Command::cargo_bin("mohyung").unwrap()
+    Command::new(env!("CARGO_BIN_EXE_mohyung"))
 }
 
 fn make_npm_fixture(root: &Path) -> PathBuf {
@@ -95,7 +95,12 @@ fn compare_dir(src: &Path, dst: &Path) {
             let s_target = fs::read_link(&s).unwrap();
             let d_target =
                 fs::read_link(&d).unwrap_or_else(|_| panic!("missing symlink: {}", d.display()));
-            assert_eq!(s_target, d_target, "symlink target mismatch: {}", d.display());
+            assert_eq!(
+                s_target,
+                d_target,
+                "symlink target mismatch: {}",
+                d.display()
+            );
         } else if meta.is_dir() {
             assert!(d.is_dir(), "missing dir: {}", d.display());
             compare_dir(&s, &d);
@@ -126,7 +131,13 @@ fn pack_and_unpack(nm: &Path, dir: &Path) -> PathBuf {
     let restored = dir.join("restored");
 
     mohyung()
-        .args(["pack", "-s", nm.to_str().unwrap(), "-o", db.to_str().unwrap()])
+        .args([
+            "pack",
+            "-s",
+            nm.to_str().unwrap(),
+            "-o",
+            db.to_str().unwrap(),
+        ])
         .assert()
         .success();
     mohyung()
@@ -192,12 +203,24 @@ fn unpack_refuses_existing_output_without_force() {
     let db = dir.path().join("nm.db");
 
     mohyung()
-        .args(["pack", "-s", nm.to_str().unwrap(), "-o", db.to_str().unwrap()])
+        .args([
+            "pack",
+            "-s",
+            nm.to_str().unwrap(),
+            "-o",
+            db.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
     mohyung()
-        .args(["unpack", "-i", db.to_str().unwrap(), "-o", nm.to_str().unwrap()])
+        .args([
+            "unpack",
+            "-i",
+            db.to_str().unwrap(),
+            "-o",
+            nm.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("--force"));
@@ -222,7 +245,13 @@ fn status_detects_modified_deleted_and_added() {
     let db = dir.path().join("nm.db");
 
     mohyung()
-        .args(["pack", "-s", nm.to_str().unwrap(), "-o", db.to_str().unwrap()])
+        .args([
+            "pack",
+            "-s",
+            nm.to_str().unwrap(),
+            "-o",
+            db.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -252,7 +281,13 @@ fn status_reports_clean_tree() {
     let db = dir.path().join("nm.db");
 
     mohyung()
-        .args(["pack", "-s", nm.to_str().unwrap(), "-o", db.to_str().unwrap()])
+        .args([
+            "pack",
+            "-s",
+            nm.to_str().unwrap(),
+            "-o",
+            db.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -298,7 +333,13 @@ fn unpack_rejects_path_traversal() {
 
     let out = dir.path().join("out");
     mohyung()
-        .args(["unpack", "-i", db.to_str().unwrap(), "-o", out.to_str().unwrap()])
+        .args([
+            "unpack",
+            "-i",
+            db.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("unsafe path"));
@@ -313,7 +354,13 @@ fn unpack_rejects_non_database_file() {
 
     let out = dir.path().join("out");
     mohyung()
-        .args(["unpack", "-i", junk.to_str().unwrap(), "-o", out.to_str().unwrap()])
+        .args([
+            "unpack",
+            "-i",
+            junk.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("not a mohyung database"));

@@ -6,7 +6,9 @@ use std::io::Read;
 pub fn compress(data: &[u8], level: u32) -> Vec<u8> {
     let mut encoder = GzEncoder::new(data, Compression::new(level));
     let mut compressed = Vec::new();
-    encoder.read_to_end(&mut compressed).expect("gzip compression failed");
+    encoder
+        .read_to_end(&mut compressed)
+        .expect("gzip compression failed");
     compressed
 }
 

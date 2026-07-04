@@ -154,7 +154,9 @@ impl Store {
     }
 
     pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM metadata WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM metadata WHERE key = ?1")?;
         let result = stmt
             .query_row(params![key], |row| row.get::<_, String>(0))
             .ok();
@@ -165,7 +167,9 @@ impl Store {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT content FROM blobs WHERE hash = ?1")?;
-        let result = stmt.query_row(params![hash], |row| row.get::<_, Vec<u8>>(0)).ok();
+        let result = stmt
+            .query_row(params![hash], |row| row.get::<_, Vec<u8>>(0))
+            .ok();
         Ok(result)
     }
 

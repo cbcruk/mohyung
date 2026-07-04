@@ -33,14 +33,8 @@ fn parse_package_json(pkg_json_path: &Path) -> Option<(String, String)> {
     let content = fs::read_to_string(pkg_json_path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    let name = parsed["name"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
-    let version = parsed["version"]
-        .as_str()
-        .unwrap_or("0.0.0")
-        .to_string();
+    let name = parsed["name"].as_str().unwrap_or("unknown").to_string();
+    let version = parsed["version"].as_str().unwrap_or("0.0.0").to_string();
 
     Some((name, version))
 }
@@ -315,10 +309,8 @@ pub fn scan_node_modules(
         progress(0, package_dirs.len(), "Collecting packages...");
     }
 
-    let scanned: Result<Vec<Option<ScannedPackage>>> = package_dirs
-        .par_iter()
-        .map(scan_package_files)
-        .collect();
+    let scanned: Result<Vec<Option<ScannedPackage>>> =
+        package_dirs.par_iter().map(scan_package_files).collect();
     let mut packages: Vec<ScannedPackage> = scanned?.into_iter().flatten().collect();
 
     for bin_dir in &bin_dirs {
@@ -395,4 +387,3 @@ pub fn scan_empty_dirs(node_modules_path: &Path) -> Result<Vec<String>> {
 
     Ok(dirs)
 }
-
