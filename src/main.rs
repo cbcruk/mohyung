@@ -1,9 +1,5 @@
-mod commands;
-mod core;
-mod types;
-mod utils;
-
 use clap::{Parser, Subcommand};
+use mohyung::{commands, types};
 
 #[derive(Parser)]
 #[command(
