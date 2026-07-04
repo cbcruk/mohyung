@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::core::store::Store;
 use crate::utils::compression::decompress;
+use crate::utils::progress::truncate_message;
 
 struct ExtractedFile {
     full_path: String,
@@ -27,13 +28,11 @@ pub fn extract_files(
 
     for (index, file) in files.iter().enumerate() {
         if let Some(progress) = on_progress {
-            let display = &file.record.relative_path;
-            let display = if display.len() > 40 {
-                &display[..40]
-            } else {
-                display
-            };
-            progress(index + 1, total_files, display);
+            progress(
+                index + 1,
+                total_files,
+                truncate_message(&file.record.relative_path, 40),
+            );
         }
 
         let full_path = Path::new(output_path)

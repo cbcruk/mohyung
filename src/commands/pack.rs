@@ -11,7 +11,7 @@ use crate::core::store::Store;
 use crate::types::PackOptions;
 use crate::utils::compression::compress;
 use crate::utils::fs::format_bytes;
-use crate::utils::progress::create_progress_bar;
+use crate::utils::progress::{create_progress_bar, truncate_message};
 
 struct ProcessedFile {
     package_index: usize,
@@ -108,13 +108,8 @@ pub fn pack(options: &PackOptions) -> Result<()> {
             let compressed = compress(&content, compression_level);
 
             let count = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
-            let display = if file.relative_path.len() > 40 {
-                &file.relative_path[..40]
-            } else {
-                &file.relative_path
-            };
             pack_pb.set_position(count as u64);
-            pack_pb.set_message(display.to_string());
+            pack_pb.set_message(truncate_message(&file.relative_path, 40).to_string());
 
             Some(ProcessedFile {
                 package_index: *pi,

@@ -8,7 +8,7 @@ use crate::commands::pack::print_box;
 use crate::core::hasher::hash_buffer;
 use crate::core::store::Store;
 use crate::types::StatusResult;
-use crate::utils::progress::create_progress_bar;
+use crate::utils::progress::{create_progress_bar, truncate_message};
 
 pub fn status(db: &str, node_modules: &str) -> Result<StatusResult> {
     let db_path = Path::new(db);
@@ -44,11 +44,7 @@ pub fn status(db: &str, node_modules: &str) -> Result<StatusResult> {
         db_paths.lock().unwrap().insert(relative_path.clone());
 
         pb.set_position((index + 1) as u64);
-        if file.record.relative_path.len() > 40 {
-            pb.set_message(file.record.relative_path[..40].to_string());
-        } else {
-            pb.set_message(file.record.relative_path.clone());
-        }
+        pb.set_message(truncate_message(&file.record.relative_path, 40).to_string());
 
         if !full_path.exists() {
             result.lock().unwrap().only_in_db.push(relative_path);
