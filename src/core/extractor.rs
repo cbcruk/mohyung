@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::core::store::Store;
 use crate::utils::compression::decompress;
@@ -10,7 +11,7 @@ use crate::utils::progress::truncate_message;
 
 struct ExtractedFile {
     full_path: String,
-    content: Vec<u8>,
+    content: Arc<Vec<u8>>,
     mode: u32,
 }
 
@@ -116,6 +117,8 @@ pub fn restore_links(store: &Store, output_path: &Path) -> Result<usize> {
     Ok(links.len())
 }
 
+const BATCH_SIZE: usize = 512;
+
 pub fn extract_files_parallel(
     store: &Store,
     output_path: &Path,
@@ -124,80 +127,73 @@ pub fn extract_files_parallel(
     let files = store.get_all_files()?;
     let total_files = files.len();
 
-    if let Some(progress) = on_progress {
-        progress(0, total_files, "Reading blobs...");
-    }
+    let mut total_size: u64 = 0;
+    let mut written: usize = 0;
+    let mut last_blob: Option<(String, Arc<Vec<u8>>)> = None;
 
-    let mut prepared: Vec<ExtractedFile> = Vec::with_capacity(total_files);
-    let mut blob_cache: HashMap<String, Vec<u8>> = HashMap::new();
+    for chunk in files.chunks(BATCH_SIZE) {
+        let mut prepared: Vec<ExtractedFile> = Vec::with_capacity(chunk.len());
 
-    for file in &files {
-        let content = if let Some(cached) = blob_cache.get(&file.record.blob_hash) {
-            cached.clone()
-        } else {
-            let compressed = store.get_blob(&file.record.blob_hash)?.ok_or_else(|| {
-                anyhow!(
-                    "blob {} missing for {}",
-                    file.record.blob_hash,
-                    file.record.relative_path
-                )
-            })?;
-            let decompressed = decompress(&compressed)?;
-
-            if decompressed.len() < 100 * 1024 {
-                blob_cache.insert(file.record.blob_hash.clone(), decompressed.clone());
-            }
-
-            decompressed
-        };
-
-        let full_path = Path::new(output_path)
-            .join(&file.package_path)
-            .join(&file.record.relative_path)
-            .to_string_lossy()
-            .to_string();
-
-        prepared.push(ExtractedFile {
-            full_path,
-            content,
-            mode: file.record.mode,
-        });
-    }
-
-    drop(blob_cache);
-
-    if let Some(progress) = on_progress {
-        progress(total_files / 2, total_files, "Writing files...");
-    }
-
-    let total_size: u64 = prepared
-        .par_iter()
-        .map(|ef| -> Result<u64> {
-            let path = Path::new(&ef.full_path);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-            }
-            fs::write(path, &ef.content)
-                .with_context(|| format!("failed to write {}", path.display()))?;
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if ef.mode != 0 {
-                    fs::set_permissions(path, fs::Permissions::from_mode(ef.mode & 0o777))
-                        .with_context(|| {
-                            format!("failed to set permissions on {}", path.display())
-                        })?;
+        for file in chunk {
+            let content = match &last_blob {
+                Some((hash, data)) if *hash == file.record.blob_hash => Arc::clone(data),
+                _ => {
+                    let compressed = store.get_blob(&file.record.blob_hash)?.ok_or_else(|| {
+                        anyhow!(
+                            "blob {} missing for {}",
+                            file.record.blob_hash,
+                            file.record.relative_path
+                        )
+                    })?;
+                    let decompressed = Arc::new(decompress(&compressed)?);
+                    last_blob = Some((file.record.blob_hash.clone(), Arc::clone(&decompressed)));
+                    decompressed
                 }
-            }
+            };
 
-            Ok(ef.content.len() as u64)
-        })
-        .try_reduce(|| 0, |a, b| Ok(a + b))?;
+            let full_path = Path::new(output_path)
+                .join(&file.package_path)
+                .join(&file.record.relative_path)
+                .to_string_lossy()
+                .to_string();
 
-    if let Some(progress) = on_progress {
-        progress(total_files, total_files, "Done");
+            prepared.push(ExtractedFile {
+                full_path,
+                content,
+                mode: file.record.mode,
+            });
+        }
+
+        total_size += prepared
+            .par_iter()
+            .map(|ef| -> Result<u64> {
+                let path = Path::new(&ef.full_path);
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("failed to create {}", parent.display()))?;
+                }
+                fs::write(path, ef.content.as_slice())
+                    .with_context(|| format!("failed to write {}", path.display()))?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if ef.mode != 0 {
+                        fs::set_permissions(path, fs::Permissions::from_mode(ef.mode & 0o777))
+                            .with_context(|| {
+                                format!("failed to set permissions on {}", path.display())
+                            })?;
+                    }
+                }
+
+                Ok(ef.content.len() as u64)
+            })
+            .try_reduce(|| 0, |a, b| Ok(a + b))?;
+
+        written += chunk.len();
+        if let Some(progress) = on_progress {
+            progress(written, total_files, "Writing files...");
+        }
     }
 
     Ok((total_files, total_size))

@@ -13,10 +13,12 @@ use crate::utils::compression::compress;
 use crate::utils::fs::format_bytes;
 use crate::utils::progress::{create_progress_bar, truncate_message};
 
+const BATCH_SIZE: usize = 512;
+
 struct ProcessedFile {
     package_index: usize,
     hash: String,
-    compressed: Option<Vec<u8>>,
+    compressed: Vec<u8>,
     original_size: u64,
     mode: u32,
     mtime: i64,
@@ -100,35 +102,6 @@ pub fn pack(options: &PackOptions) -> Result<()> {
         })
         .collect();
 
-    let processed: Result<Vec<ProcessedFile>> = all_files
-        .par_iter()
-        .map(|(pi, _fi, file)| {
-            let content = fs::read(&file.absolute_path)
-                .with_context(|| format!("failed to read {}", file.absolute_path.display()))?;
-            let hash = hash_buffer(&content);
-            let compressed = compress(&content, compression_level);
-
-            let count = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
-            pack_pb.set_position(count as u64);
-            pack_pb.set_message(truncate_message(&file.relative_path, 40).to_string());
-
-            Ok(ProcessedFile {
-                package_index: *pi,
-                hash,
-                compressed: Some(compressed),
-                original_size: content.len() as u64,
-                mode: file.mode,
-                mtime: file.mtime,
-                relative_path: file.relative_path.clone(),
-            })
-        })
-        .collect();
-    let processed = processed?;
-
-    pack_pb.finish_and_clear();
-
-    eprintln!("Writing to database...");
-
     let mut deduplicated_count: usize = 0;
     let mut seen_hashes = std::collections::HashSet::new();
 
@@ -160,44 +133,70 @@ pub fn pack(options: &PackOptions) -> Result<()> {
 
         let mut package_ids: Vec<Option<i64>> = vec![None; scan_result.packages.len()];
 
-        for pf in &processed {
-            let pkg_id = if let Some(id) = package_ids[pf.package_index] {
-                id
-            } else {
-                let pkg = &scan_result.packages[pf.package_index];
-                let id: i64 = insert_pkg_stmt.query_row(
-                    params![pkg.info.name, pkg.info.version, pkg.info.path],
-                    |row| row.get(0),
-                )?;
-                package_ids[pf.package_index] = Some(id);
-                id
-            };
+        for chunk in all_files.chunks(BATCH_SIZE) {
+            let processed: Result<Vec<ProcessedFile>> = chunk
+                .par_iter()
+                .map(|(pi, _fi, file)| {
+                    let content = fs::read(&file.absolute_path).with_context(|| {
+                        format!("failed to read {}", file.absolute_path.display())
+                    })?;
+                    let hash = hash_buffer(&content);
+                    let compressed = compress(&content, compression_level);
 
-            if !seen_hashes.contains(&pf.hash) {
-                if let Some(ref compressed) = pf.compressed {
+                    let count = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    pack_pb.set_position(count as u64);
+                    pack_pb.set_message(truncate_message(&file.relative_path, 40).to_string());
+
+                    Ok(ProcessedFile {
+                        package_index: *pi,
+                        hash,
+                        compressed,
+                        original_size: content.len() as u64,
+                        mode: file.mode,
+                        mtime: file.mtime,
+                        relative_path: file.relative_path.clone(),
+                    })
+                })
+                .collect();
+
+            for pf in processed? {
+                let pkg_id = if let Some(id) = package_ids[pf.package_index] {
+                    id
+                } else {
+                    let pkg = &scan_result.packages[pf.package_index];
+                    let id: i64 = insert_pkg_stmt.query_row(
+                        params![pkg.info.name, pkg.info.version, pkg.info.path],
+                        |row| row.get(0),
+                    )?;
+                    package_ids[pf.package_index] = Some(id);
+                    id
+                };
+
+                if seen_hashes.insert(pf.hash.clone()) {
                     insert_blob_stmt.execute(params![
                         pf.hash,
-                        compressed,
+                        pf.compressed,
                         pf.original_size,
-                        compressed.len() as u64
+                        pf.compressed.len() as u64
                     ])?;
-                    seen_hashes.insert(pf.hash.clone());
+                } else {
+                    deduplicated_count += 1;
                 }
-            } else {
-                deduplicated_count += 1;
-            }
 
-            insert_file_stmt.execute(params![
-                pkg_id,
-                pf.relative_path,
-                pf.hash,
-                pf.mode,
-                pf.mtime
-            ])?;
+                insert_file_stmt.execute(params![
+                    pkg_id,
+                    pf.relative_path,
+                    pf.hash,
+                    pf.mode,
+                    pf.mtime
+                ])?;
+            }
         }
 
         Ok(())
     })?;
+
+    pack_pb.finish_and_clear();
 
     let db_size = fs::metadata(&db_path)?.len();
     let compression_ratio = if scan_result.total_size > 0 {

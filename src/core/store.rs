@@ -161,7 +161,8 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT f.id, f.package_id, f.relative_path, f.blob_hash, f.mode, f.mtime, p.path as package_path
              FROM files f
-             JOIN packages p ON f.package_id = p.id",
+             JOIN packages p ON f.package_id = p.id
+             ORDER BY f.blob_hash",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(FileRecordWithPath {
