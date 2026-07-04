@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -181,13 +181,13 @@ fn find_bin_dirs(node_modules_path: &Path, use_pnpm: bool) -> Vec<PackageDir> {
     dirs
 }
 
-fn scan_bin_dir(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
+fn scan_bin_dir(pkg_dir: &PackageDir) -> Result<Option<ScannedPackage>> {
     let files = collect_files(&pkg_dir.path)?;
     if files.is_empty() {
-        return None;
+        return Ok(None);
     }
 
-    Some(ScannedPackage {
+    Ok(Some(ScannedPackage {
         info: PackageInfo {
             id: None,
             name: ".bin".to_string(),
@@ -195,15 +195,18 @@ fn scan_bin_dir(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
             path: pkg_dir.relative_path.clone(),
         },
         files,
-    })
+    }))
 }
 
-fn scan_package_files(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
+fn scan_package_files(pkg_dir: &PackageDir) -> Result<Option<ScannedPackage>> {
     let pkg_json_path = pkg_dir.path.join("package.json");
-    let (name, version) = parse_package_json(&pkg_json_path)?;
+    let (name, version) = match parse_package_json(&pkg_json_path) {
+        Some(parsed) => parsed,
+        None => return Ok(None),
+    };
     let files = collect_files(&pkg_dir.path)?;
 
-    Some(ScannedPackage {
+    Ok(Some(ScannedPackage {
         info: PackageInfo {
             id: None,
             name,
@@ -211,25 +214,24 @@ fn scan_package_files(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
             path: pkg_dir.relative_path.clone(),
         },
         files,
-    })
+    }))
 }
 
-fn collect_files(dir: &Path) -> Option<Vec<FileEntry>> {
+fn collect_files(dir: &Path) -> Result<Vec<FileEntry>> {
     let mut files = Vec::new();
 
-    for entry in WalkDir::new(dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(dir) {
+        let entry = entry?;
         if !entry.file_type().is_file() {
             continue;
         }
 
-        let metadata = entry.metadata().ok()?;
+        let metadata = entry.metadata().with_context(|| {
+            format!("failed to read metadata: {}", entry.path().display())
+        })?;
         let absolute_path = entry.path().to_path_buf();
         let relative_path = absolute_path
-            .strip_prefix(dir)
-            .ok()?
+            .strip_prefix(dir)?
             .to_string_lossy()
             .to_string();
 
@@ -257,7 +259,7 @@ fn collect_files(dir: &Path) -> Option<Vec<FileEntry>> {
         });
     }
 
-    Some(files)
+    Ok(files)
 }
 
 pub fn scan_node_modules(
@@ -277,11 +279,17 @@ pub fn scan_node_modules(
         progress(0, package_dirs.len(), "Collecting packages...");
     }
 
-    let mut packages: Vec<ScannedPackage> = package_dirs
+    let scanned: Result<Vec<Option<ScannedPackage>>> = package_dirs
         .par_iter()
-        .filter_map(|pkg_dir| scan_package_files(pkg_dir))
+        .map(scan_package_files)
         .collect();
-    packages.extend(bin_dirs.iter().filter_map(scan_bin_dir));
+    let mut packages: Vec<ScannedPackage> = scanned?.into_iter().flatten().collect();
+
+    for bin_dir in &bin_dirs {
+        if let Some(pkg) = scan_bin_dir(bin_dir)? {
+            packages.push(pkg);
+        }
+    }
 
     let total_files: usize = packages.iter().map(|p| p.files.len()).sum();
     let total_size: u64 = packages
@@ -304,11 +312,8 @@ pub fn scan_node_modules(
 pub fn scan_symlinks(node_modules_path: &Path) -> Result<Vec<LinkEntry>> {
     let mut links = Vec::new();
 
-    for entry in WalkDir::new(node_modules_path)
-        .min_depth(1)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(node_modules_path).min_depth(1) {
+        let entry = entry?;
         if !entry.path_is_symlink() {
             continue;
         }

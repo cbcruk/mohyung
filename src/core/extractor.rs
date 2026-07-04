@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -46,13 +46,13 @@ pub fn extract_files(
         let content = if let Some(cached) = blob_cache.get(&file.record.blob_hash) {
             cached.clone()
         } else {
-            let compressed = match store.get_blob(&file.record.blob_hash)? {
-                Some(data) => data,
-                None => {
-                    eprintln!("Blob not found: {}", file.record.relative_path);
-                    continue;
-                }
-            };
+            let compressed = store.get_blob(&file.record.blob_hash)?.ok_or_else(|| {
+                anyhow!(
+                    "blob {} missing for {}",
+                    file.record.blob_hash,
+                    file.record.relative_path
+                )
+            })?;
             let decompressed = decompress(&compressed)?;
 
             if decompressed.len() < 100 * 1024 {
@@ -135,13 +135,13 @@ pub fn extract_files_parallel(
         let content = if let Some(cached) = blob_cache.get(&file.record.blob_hash) {
             cached.clone()
         } else {
-            let compressed = match store.get_blob(&file.record.blob_hash)? {
-                Some(data) => data,
-                None => {
-                    eprintln!("Blob not found: {}", file.record.relative_path);
-                    continue;
-                }
-            };
+            let compressed = store.get_blob(&file.record.blob_hash)?.ok_or_else(|| {
+                anyhow!(
+                    "blob {} missing for {}",
+                    file.record.blob_hash,
+                    file.record.relative_path
+                )
+            })?;
             let decompressed = decompress(&compressed)?;
 
             if decompressed.len() < 100 * 1024 {
@@ -172,27 +172,29 @@ pub fn extract_files_parallel(
 
     let total_size: u64 = prepared
         .par_iter()
-        .map(|ef| {
+        .map(|ef| -> Result<u64> {
             let path = Path::new(&ef.full_path);
             if let Some(parent) = path.parent() {
-                let _ = fs::create_dir_all(parent);
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
             }
-            let _ = fs::write(path, &ef.content);
+            fs::write(path, &ef.content)
+                .with_context(|| format!("failed to write {}", path.display()))?;
 
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 if ef.mode != 0 {
-                    let _ = fs::set_permissions(
-                        path,
-                        fs::Permissions::from_mode(ef.mode & 0o777),
-                    );
+                    fs::set_permissions(path, fs::Permissions::from_mode(ef.mode & 0o777))
+                        .with_context(|| {
+                            format!("failed to set permissions on {}", path.display())
+                        })?;
                 }
             }
 
-            ef.content.len() as u64
+            Ok(ef.content.len() as u64)
         })
-        .sum();
+        .try_reduce(|| 0, |a, b| Ok(a + b))?;
 
     if let Some(progress) = on_progress {
         progress(total_files, total_files, "Done");

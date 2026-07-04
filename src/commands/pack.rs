@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
 use rusqlite::params;
 use std::fs;
@@ -100,10 +100,11 @@ pub fn pack(options: &PackOptions) -> Result<()> {
         })
         .collect();
 
-    let processed: Vec<ProcessedFile> = all_files
+    let processed: Result<Vec<ProcessedFile>> = all_files
         .par_iter()
-        .filter_map(|(pi, _fi, file)| {
-            let content = fs::read(&file.absolute_path).ok()?;
+        .map(|(pi, _fi, file)| {
+            let content = fs::read(&file.absolute_path)
+                .with_context(|| format!("failed to read {}", file.absolute_path.display()))?;
             let hash = hash_buffer(&content);
             let compressed = compress(&content, compression_level);
 
@@ -111,7 +112,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
             pack_pb.set_position(count as u64);
             pack_pb.set_message(truncate_message(&file.relative_path, 40).to_string());
 
-            Some(ProcessedFile {
+            Ok(ProcessedFile {
                 package_index: *pi,
                 hash,
                 compressed: Some(compressed),
@@ -122,6 +123,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
             })
         })
         .collect();
+    let processed = processed?;
 
     pack_pb.finish_and_clear();
 
