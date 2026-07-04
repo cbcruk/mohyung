@@ -150,13 +150,74 @@ fn find_pnpm_package_dirs(node_modules_path: &Path) -> Result<Vec<PackageDir>> {
     Ok(dirs)
 }
 
+fn find_bin_dirs(node_modules_path: &Path, use_pnpm: bool) -> Vec<PackageDir> {
+    let mut dirs = Vec::new();
+
+    let top_bin = node_modules_path.join(".bin");
+    if top_bin.is_dir() {
+        dirs.push(PackageDir {
+            path: top_bin,
+            relative_path: ".bin".to_string(),
+        });
+    }
+
+    if use_pnpm {
+        if let Ok(entries) = fs::read_dir(node_modules_path.join(".pnpm")) {
+            for entry in entries.flatten() {
+                let bin = entry.path().join("node_modules").join(".bin");
+                if bin.is_dir() {
+                    dirs.push(PackageDir {
+                        path: bin,
+                        relative_path: format!(
+                            ".pnpm/{}/node_modules/.bin",
+                            entry.file_name().to_string_lossy()
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    dirs
+}
+
+fn scan_bin_dir(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
+    let files = collect_files(&pkg_dir.path)?;
+    if files.is_empty() {
+        return None;
+    }
+
+    Some(ScannedPackage {
+        info: PackageInfo {
+            id: None,
+            name: ".bin".to_string(),
+            version: "0.0.0".to_string(),
+            path: pkg_dir.relative_path.clone(),
+        },
+        files,
+    })
+}
+
 fn scan_package_files(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
     let pkg_json_path = pkg_dir.path.join("package.json");
     let (name, version) = parse_package_json(&pkg_json_path)?;
+    let files = collect_files(&pkg_dir.path)?;
 
+    Some(ScannedPackage {
+        info: PackageInfo {
+            id: None,
+            name,
+            version,
+            path: pkg_dir.relative_path.clone(),
+        },
+        files,
+    })
+}
+
+fn collect_files(dir: &Path) -> Option<Vec<FileEntry>> {
     let mut files = Vec::new();
 
-    for entry in WalkDir::new(&pkg_dir.path)
+    for entry in WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -167,7 +228,7 @@ fn scan_package_files(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
         let metadata = entry.metadata().ok()?;
         let absolute_path = entry.path().to_path_buf();
         let relative_path = absolute_path
-            .strip_prefix(&pkg_dir.path)
+            .strip_prefix(dir)
             .ok()?
             .to_string_lossy()
             .to_string();
@@ -196,15 +257,7 @@ fn scan_package_files(pkg_dir: &PackageDir) -> Option<ScannedPackage> {
         });
     }
 
-    Some(ScannedPackage {
-        info: PackageInfo {
-            id: None,
-            name,
-            version,
-            path: pkg_dir.relative_path.clone(),
-        },
-        files,
-    })
+    Some(files)
 }
 
 pub fn scan_node_modules(
@@ -218,15 +271,17 @@ pub fn scan_node_modules(
     } else {
         find_package_dirs(node_modules_path)?
     };
+    let bin_dirs = find_bin_dirs(node_modules_path, use_pnpm);
 
     if let Some(progress) = on_progress {
         progress(0, package_dirs.len(), "Collecting packages...");
     }
 
-    let packages: Vec<ScannedPackage> = package_dirs
+    let mut packages: Vec<ScannedPackage> = package_dirs
         .par_iter()
         .filter_map(|pkg_dir| scan_package_files(pkg_dir))
         .collect();
+    packages.extend(bin_dirs.iter().filter_map(scan_bin_dir));
 
     let total_files: usize = packages.iter().map(|p| p.files.len()).sum();
     let total_size: u64 = packages
