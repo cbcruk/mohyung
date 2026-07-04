@@ -14,6 +14,7 @@ struct ExtractedFile {
     full_path: String,
     content: Arc<Vec<u8>>,
     mode: u32,
+    mtime: i64,
 }
 
 pub fn extract_files(
@@ -80,6 +81,19 @@ pub fn extract_files(
     }
 
     Ok((total_files, total_size))
+}
+
+pub fn restore_empty_dirs(store: &Store, output_path: &Path) -> Result<usize> {
+    let dirs = store.get_all_dirs()?;
+
+    for dir in &dirs {
+        if !is_safe_relative_path(dir) {
+            bail!("unsafe dir path in database: {}", dir);
+        }
+        fs::create_dir_all(output_path.join(dir))?;
+    }
+
+    Ok(dirs.len())
 }
 
 pub fn restore_links(store: &Store, output_path: &Path) -> Result<usize> {
@@ -176,6 +190,7 @@ pub fn extract_files_parallel(
                 full_path,
                 content,
                 mode: file.record.mode,
+                mtime: file.record.mtime,
             });
         }
 
@@ -199,6 +214,16 @@ pub fn extract_files_parallel(
                                 format!("failed to set permissions on {}", path.display())
                             })?;
                     }
+                }
+
+                if ef.mtime > 0 {
+                    let mtime = std::time::UNIX_EPOCH
+                        + std::time::Duration::from_millis(ef.mtime as u64);
+                    fs::File::options()
+                        .write(true)
+                        .open(path)
+                        .and_then(|f| f.set_modified(mtime))
+                        .with_context(|| format!("failed to set mtime on {}", path.display()))?;
                 }
 
                 Ok(ef.content.len() as u64)

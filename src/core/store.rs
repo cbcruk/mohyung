@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OpenFlags, Transaction};
 
 use crate::types::{BlobInfo, BlobStats, FileRecord, FileRecordWithPath, LinkEntry, PackageInfo};
 
-const SCHEMA_VERSION: &str = "1";
+const SCHEMA_VERSION: &str = "2";
 
 const CREATE_TABLES_SQL: &str = "
 CREATE TABLE IF NOT EXISTS metadata (
@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE TABLE IF NOT EXISTS links (
   path TEXT PRIMARY KEY,
   target TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dirs (
+  path TEXT PRIMARY KEY
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_package ON files(package_id);
@@ -227,6 +231,17 @@ impl Store {
             links.push(row?);
         }
         Ok(links)
+    }
+
+    pub fn get_all_dirs(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT path FROM dirs ORDER BY path")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+
+        let mut dirs = Vec::new();
+        for row in rows {
+            dirs.push(row?);
+        }
+        Ok(dirs)
     }
 
     pub fn get_total_file_count(&self) -> Result<usize> {

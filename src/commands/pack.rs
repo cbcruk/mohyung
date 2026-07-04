@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::core::hasher::{hash_buffer, hash_string};
-use crate::core::scanner::{scan_node_modules, scan_symlinks};
+use crate::core::scanner::{scan_empty_dirs, scan_node_modules, scan_symlinks};
 use crate::core::store::Store;
 use crate::types::PackOptions;
 use crate::utils::compression::compress;
@@ -52,6 +52,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     scan_pb.finish_and_clear();
 
     let links = scan_symlinks(&node_modules_path)?;
+    let empty_dirs = scan_empty_dirs(&node_modules_path)?;
 
     eprintln!(
         "Found {} packages, {} files, {} symlinks ({})",
@@ -137,6 +138,12 @@ pub fn pack(options: &PackOptions) -> Result<()> {
 
         for link in &links {
             insert_link_stmt.execute(params![link.path, link.target])?;
+        }
+
+        let mut insert_dir_stmt =
+            tx.prepare_cached("INSERT OR REPLACE INTO dirs (path) VALUES (?1)")?;
+        for dir in &empty_dirs {
+            insert_dir_stmt.execute(params![dir])?;
         }
 
         let mut package_ids: Vec<Option<i64>> = vec![None; scan_result.packages.len()];

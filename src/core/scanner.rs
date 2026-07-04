@@ -373,6 +373,29 @@ pub fn scan_symlinks(node_modules_path: &Path) -> Result<Vec<LinkEntry>> {
     Ok(links)
 }
 
+pub fn scan_empty_dirs(node_modules_path: &Path) -> Result<Vec<String>> {
+    let mut dirs = Vec::new();
+
+    for entry in WalkDir::new(node_modules_path).min_depth(1) {
+        let entry = entry?;
+        if !entry.file_type().is_dir() {
+            continue;
+        }
+        if fs::read_dir(entry.path())?.next().is_some() {
+            continue;
+        }
+
+        let path = entry
+            .path()
+            .strip_prefix(node_modules_path)?
+            .to_string_lossy()
+            .to_string();
+        dirs.push(path);
+    }
+
+    Ok(dirs)
+}
+
 pub fn count_files(node_modules_path: &Path) -> Result<usize> {
     let count = WalkDir::new(node_modules_path)
         .into_iter()

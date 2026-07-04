@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::commands::pack::print_box;
-use crate::core::extractor::{extract_files_parallel, restore_links};
+use crate::core::extractor::{extract_files_parallel, restore_empty_dirs, restore_links};
 use crate::core::store::Store;
 use crate::types::UnpackOptions;
 use crate::utils::fs::format_bytes;
@@ -62,6 +62,7 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
         pb.set_position(current as u64);
         pb.set_message(msg.to_string());
     }))?;
+    restore_empty_dirs(&store, output_path)?;
     let link_count = restore_links(&store, output_path)?;
     let elapsed = start.elapsed().as_secs_f64();
     pb.finish_and_clear();
