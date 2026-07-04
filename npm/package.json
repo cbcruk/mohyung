@@ -8,7 +8,7 @@
     "url": "https://github.com/cbcruk/mohyung"
   },
   "bin": {
-    "mohyung": "bin/mohyung"
+    "mohyung": "bin/mohyung.js"
   },
   "scripts": {
     "postinstall": "node scripts/install.js"
