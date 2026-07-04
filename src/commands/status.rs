@@ -28,7 +28,7 @@ pub fn status(db: &str, node_modules: &str) -> Result<StatusResult> {
     eprintln!("DB: {}", db_path.display());
     eprintln!("node_modules: {}", node_modules_path.display());
 
-    let store = Store::open(db_path.to_str().unwrap_or_default())?;
+    let store = Store::open_readonly(db_path.to_str().unwrap_or_default())?;
     let files = store.get_all_files()?;
     let total = files.len();
 

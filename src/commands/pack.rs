@@ -71,7 +71,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
         }
     }
 
-    let mut store = Store::open(db_path.to_str().unwrap_or_default())?;
+    let mut store = Store::create(db_path.to_str().unwrap_or_default())?;
 
     store.set_metadata("created_at", &chrono_now())?;
     store.set_metadata("source_path", &node_modules_path.to_string_lossy())?;
@@ -197,6 +197,8 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     })?;
 
     pack_pb.finish_and_clear();
+
+    store.finalize()?;
 
     let db_size = fs::metadata(&db_path)?.len();
     let compression_ratio = if scan_result.total_size > 0 {

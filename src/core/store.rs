@@ -1,5 +1,5 @@
-use anyhow::Result;
-use rusqlite::{params, Connection, Transaction};
+use anyhow::{anyhow, bail, Context, Result};
+use rusqlite::{params, Connection, OpenFlags, Transaction};
 
 use crate::types::{BlobInfo, BlobStats, FileRecord, FileRecordWithPath, LinkEntry, PackageInfo};
 
@@ -50,7 +50,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn open(db_path: &str) -> Result<Self> {
+    pub fn create(db_path: &str) -> Result<Self> {
         let conn = Connection::open(db_path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
@@ -59,6 +59,32 @@ impl Store {
 
         let store = Store { conn };
         store.set_metadata("schema_version", SCHEMA_VERSION)?;
+
+        Ok(store)
+    }
+
+    pub fn finalize(self) -> Result<()> {
+        self.conn.pragma_update(None, "journal_mode", "DELETE")?;
+        Ok(())
+    }
+
+    pub fn open_readonly(db_path: &str) -> Result<Self> {
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let store = Store { conn };
+
+        let version = store
+            .get_metadata("schema_version")
+            .with_context(|| format!("not a mohyung database: {}", db_path))?
+            .ok_or_else(|| anyhow!("not a mohyung database: {}", db_path))?;
+
+        if version != SCHEMA_VERSION {
+            bail!(
+                "unsupported schema version {} (this build supports {}): {}",
+                version,
+                SCHEMA_VERSION,
+                db_path
+            );
+        }
 
         Ok(store)
     }

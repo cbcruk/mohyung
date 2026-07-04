@@ -31,7 +31,7 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
     }
 
     eprintln!("Opening {}", db_path.display());
-    let store = Store::open(db_path.to_str().unwrap_or_default())?;
+    let store = Store::open_readonly(db_path.to_str().unwrap_or_default())?;
 
     let created_at = store
         .get_metadata("created_at")?
