@@ -217,6 +217,40 @@ fn scan_package_files(pkg_dir: &PackageDir) -> Result<Option<ScannedPackage>> {
     }))
 }
 
+fn to_file_entry(entry: &walkdir::DirEntry, base: &Path) -> Result<FileEntry> {
+    let metadata = entry
+        .metadata()
+        .with_context(|| format!("failed to read metadata: {}", entry.path().display()))?;
+    let absolute_path = entry.path().to_path_buf();
+    let relative_path = absolute_path
+        .strip_prefix(base)?
+        .to_string_lossy()
+        .to_string();
+
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode()
+    };
+    #[cfg(not(unix))]
+    let mode = 0o644u32;
+
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    Ok(FileEntry {
+        relative_path,
+        absolute_path,
+        mode,
+        size: metadata.len(),
+        mtime,
+    })
+}
+
 fn collect_files(dir: &Path) -> Result<Vec<FileEntry>> {
     let mut files = Vec::new();
 
@@ -225,41 +259,43 @@ fn collect_files(dir: &Path) -> Result<Vec<FileEntry>> {
         if !entry.file_type().is_file() {
             continue;
         }
-
-        let metadata = entry.metadata().with_context(|| {
-            format!("failed to read metadata: {}", entry.path().display())
-        })?;
-        let absolute_path = entry.path().to_path_buf();
-        let relative_path = absolute_path
-            .strip_prefix(dir)?
-            .to_string_lossy()
-            .to_string();
-
-        #[cfg(unix)]
-        let mode = {
-            use std::os::unix::fs::PermissionsExt;
-            metadata.permissions().mode()
-        };
-        #[cfg(not(unix))]
-        let mode = 0o644u32;
-
-        let mtime = metadata
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-
-        files.push(FileEntry {
-            relative_path,
-            absolute_path,
-            mode,
-            size: metadata.len(),
-            mtime,
-        });
+        files.push(to_file_entry(&entry, dir)?);
     }
 
     Ok(files)
+}
+
+fn scan_root_files(node_modules_path: &Path, use_pnpm: bool) -> Result<Option<ScannedPackage>> {
+    let mut files = Vec::new();
+
+    let mut roots = vec![node_modules_path.to_path_buf()];
+    if use_pnpm {
+        roots.push(node_modules_path.join(".pnpm"));
+    }
+
+    for root in roots {
+        for entry in WalkDir::new(&root).min_depth(1).max_depth(1) {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            files.push(to_file_entry(&entry, node_modules_path)?);
+        }
+    }
+
+    if files.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(ScannedPackage {
+        info: PackageInfo {
+            id: None,
+            name: ".root".to_string(),
+            version: "0.0.0".to_string(),
+            path: ".".to_string(),
+        },
+        files,
+    }))
 }
 
 pub fn scan_node_modules(
@@ -289,6 +325,9 @@ pub fn scan_node_modules(
         if let Some(pkg) = scan_bin_dir(bin_dir)? {
             packages.push(pkg);
         }
+    }
+    if let Some(pkg) = scan_root_files(node_modules_path, use_pnpm)? {
+        packages.push(pkg);
     }
 
     let total_files: usize = packages.iter().map(|p| p.files.len()).sum();

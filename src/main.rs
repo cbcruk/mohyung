@@ -52,6 +52,9 @@ enum Commands {
 
         #[arg(short = 'n', long, default_value = "./node_modules")]
         node_modules: String,
+
+        #[arg(short = 'v', long)]
+        verbose: bool,
     },
 }
 
@@ -79,9 +82,11 @@ fn main() {
             output,
             force,
         }),
-        Commands::Status { db, node_modules } => {
-            commands::status::status(&db, &node_modules).map(|_| ())
-        }
+        Commands::Status {
+            db,
+            node_modules,
+            verbose,
+        } => commands::status::status(&db, &node_modules, verbose).map(|_| ()),
     };
 
     if let Err(e) = result {
