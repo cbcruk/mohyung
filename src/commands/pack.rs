@@ -3,6 +3,8 @@ use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 use crate::core::hasher::{hash_buffer, hash_string};
 use crate::core::scanner::{scan_empty_dirs, scan_node_modules, scan_symlinks};
@@ -75,7 +77,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
 
     let mut store = Store::create(db_path.to_str().unwrap_or_default())?;
 
-    store.set_metadata("created_at", &chrono_now())?;
+    store.set_metadata("created_at", &now_rfc3339())?;
     store.set_metadata("source_path", &node_modules_path.to_string_lossy())?;
 
     if options.include_lockfile {
@@ -206,56 +208,12 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     Ok(())
 }
 
-fn chrono_now() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+fn now_rfc3339() -> String {
+    let now = OffsetDateTime::now_utc();
+    now.replace_nanosecond(0)
+        .unwrap_or(now)
+        .format(&Rfc3339)
         .unwrap_or_default()
-        .as_secs();
-
-    let secs_per_day = 86400u64;
-    let days = now / secs_per_day;
-    let remaining = now % secs_per_day;
-    let hours = remaining / 3600;
-    let minutes = (remaining % 3600) / 60;
-    let seconds = remaining % 60;
-
-    let mut year = 1970i32;
-    let mut remaining_days = days as i32;
-
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
-
-    let days_in_months: [i32; 12] = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 0;
-    for (i, &days) in days_in_months.iter().enumerate() {
-        if remaining_days < days {
-            month = i + 1;
-            break;
-        }
-        remaining_days -= days;
-    }
-
-    let day = remaining_days + 1;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
-}
-
-fn is_leap_year(year: i32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 pub fn print_box(title: &str, lines: &[&str], color: &str) {
