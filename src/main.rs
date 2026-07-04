@@ -26,7 +26,7 @@ enum Commands {
         #[arg(short = 's', long, default_value = "./node_modules")]
         source: String,
 
-        #[arg(short = 'c', long, default_value = "6")]
+        #[arg(short = 'c', long, default_value = "6", value_parser = clap::value_parser!(u32).range(1..=9))]
         compression: u32,
 
         #[arg(long)]
