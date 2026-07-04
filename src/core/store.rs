@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OpenFlags, Transaction};
 
-use crate::types::{BlobInfo, BlobStats, FileRecord, FileRecordWithPath, LinkEntry, PackageInfo};
+use crate::types::{BlobStats, FileRecord, FileRecordWithPath, LinkEntry, PackageInfo};
 
 const SCHEMA_VERSION: &str = "2";
 
@@ -51,6 +51,58 @@ CREATE INDEX IF NOT EXISTS idx_files_blob ON files(blob_hash);
 
 pub struct Store {
     conn: Connection,
+}
+
+pub fn insert_package(tx: &Transaction, pkg: &PackageInfo) -> Result<i64> {
+    let mut stmt = tx.prepare_cached(
+        "INSERT INTO packages (name, version, path) VALUES (?1, ?2, ?3)
+         ON CONFLICT(name, version, path) DO UPDATE SET name = name
+         RETURNING id",
+    )?;
+    let id: i64 = stmt.query_row(params![pkg.name, pkg.version, pkg.path], |row| row.get(0))?;
+    Ok(id)
+}
+
+pub fn insert_blob(tx: &Transaction, hash: &str, content: &[u8], original_size: u64) -> Result<()> {
+    let mut stmt = tx.prepare_cached(
+        "INSERT OR IGNORE INTO blobs (hash, content, original_size, compressed_size)
+         VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    stmt.execute(params![hash, content, original_size, content.len() as u64])?;
+    Ok(())
+}
+
+pub fn insert_file(
+    tx: &Transaction,
+    package_id: i64,
+    relative_path: &str,
+    blob_hash: &str,
+    mode: u32,
+    mtime: i64,
+) -> Result<()> {
+    let mut stmt = tx.prepare_cached(
+        "INSERT INTO files (package_id, relative_path, blob_hash, mode, mtime)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(package_id, relative_path) DO UPDATE SET
+           blob_hash = excluded.blob_hash,
+           mode = excluded.mode,
+           mtime = excluded.mtime",
+    )?;
+    stmt.execute(params![package_id, relative_path, blob_hash, mode, mtime])?;
+    Ok(())
+}
+
+pub fn insert_link(tx: &Transaction, link: &LinkEntry) -> Result<()> {
+    let mut stmt =
+        tx.prepare_cached("INSERT OR REPLACE INTO links (path, target) VALUES (?1, ?2)")?;
+    stmt.execute(params![link.path, link.target])?;
+    Ok(())
+}
+
+pub fn insert_dir(tx: &Transaction, path: &str) -> Result<()> {
+    let mut stmt = tx.prepare_cached("INSERT OR REPLACE INTO dirs (path) VALUES (?1)")?;
+    stmt.execute(params![path])?;
+    Ok(())
 }
 
 impl Store {
@@ -109,40 +161,6 @@ impl Store {
         Ok(result)
     }
 
-    pub fn insert_package(&self, pkg: &PackageInfo) -> Result<i64> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO packages (name, version, path) VALUES (?1, ?2, ?3)
-             ON CONFLICT(name, version, path) DO UPDATE SET name = name
-             RETURNING id",
-        )?;
-        let id: i64 = stmt.query_row(params![pkg.name, pkg.version, pkg.path], |row| {
-            row.get(0)
-        })?;
-        Ok(id)
-    }
-
-    pub fn has_blob(&self, hash: &str) -> Result<bool> {
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT 1 FROM blobs WHERE hash = ?1")?;
-        let exists = stmt.exists(params![hash])?;
-        Ok(exists)
-    }
-
-    pub fn insert_blob(&self, blob: &BlobInfo) -> Result<()> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT OR IGNORE INTO blobs (hash, content, original_size, compressed_size)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        stmt.execute(params![
-            blob.hash,
-            blob.content,
-            blob.original_size,
-            blob.compressed_size
-        ])?;
-        Ok(())
-    }
-
     pub fn get_blob(&self, hash: &str) -> Result<Option<Vec<u8>>> {
         let mut stmt = self
             .conn
@@ -166,25 +184,6 @@ impl Store {
             })
         })?;
         Ok(stats)
-    }
-
-    pub fn insert_file(&self, file: &FileRecord) -> Result<()> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO files (package_id, relative_path, blob_hash, mode, mtime)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(package_id, relative_path) DO UPDATE SET
-               blob_hash = excluded.blob_hash,
-               mode = excluded.mode,
-               mtime = excluded.mtime",
-        )?;
-        stmt.execute(params![
-            file.package_id,
-            file.relative_path,
-            file.blob_hash,
-            file.mode,
-            file.mtime
-        ])?;
-        Ok(())
     }
 
     pub fn get_all_files(&self) -> Result<Vec<FileRecordWithPath>> {

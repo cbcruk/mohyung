@@ -1,13 +1,12 @@
 use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
-use rusqlite::params;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::core::hasher::{hash_buffer, hash_string};
 use crate::core::scanner::{scan_empty_dirs, scan_node_modules, scan_symlinks};
-use crate::core::store::Store;
+use crate::core::store::{self, Store};
 use crate::types::PackOptions;
 use crate::utils::compression::compress;
 use crate::utils::fs::format_bytes;
@@ -115,35 +114,11 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     let mut seen_hashes = std::collections::HashSet::new();
 
     store.transaction(|tx| {
-        let mut insert_pkg_stmt = tx.prepare_cached(
-            "INSERT INTO packages (name, version, path) VALUES (?1, ?2, ?3)
-             ON CONFLICT(name, version, path) DO UPDATE SET name = name
-             RETURNING id",
-        )?;
-        let mut insert_blob_stmt = tx.prepare_cached(
-            "INSERT OR IGNORE INTO blobs (hash, content, original_size, compressed_size)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        let mut insert_file_stmt = tx.prepare_cached(
-            "INSERT INTO files (package_id, relative_path, blob_hash, mode, mtime)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(package_id, relative_path) DO UPDATE SET
-               blob_hash = excluded.blob_hash,
-               mode = excluded.mode,
-               mtime = excluded.mtime",
-        )?;
-        let mut insert_link_stmt = tx.prepare_cached(
-            "INSERT OR REPLACE INTO links (path, target) VALUES (?1, ?2)",
-        )?;
-
         for link in &links {
-            insert_link_stmt.execute(params![link.path, link.target])?;
+            store::insert_link(tx, link)?;
         }
-
-        let mut insert_dir_stmt =
-            tx.prepare_cached("INSERT OR REPLACE INTO dirs (path) VALUES (?1)")?;
         for dir in &empty_dirs {
-            insert_dir_stmt.execute(params![dir])?;
+            store::insert_dir(tx, dir)?;
         }
 
         let mut package_ids: Vec<Option<i64>> = vec![None; scan_result.packages.len()];
@@ -179,32 +154,25 @@ pub fn pack(options: &PackOptions) -> Result<()> {
                     id
                 } else {
                     let pkg = &scan_result.packages[pf.package_index];
-                    let id: i64 = insert_pkg_stmt.query_row(
-                        params![pkg.info.name, pkg.info.version, pkg.info.path],
-                        |row| row.get(0),
-                    )?;
+                    let id = store::insert_package(tx, &pkg.info)?;
                     package_ids[pf.package_index] = Some(id);
                     id
                 };
 
                 if seen_hashes.insert(pf.hash.clone()) {
-                    insert_blob_stmt.execute(params![
-                        pf.hash,
-                        pf.compressed,
-                        pf.original_size,
-                        pf.compressed.len() as u64
-                    ])?;
+                    store::insert_blob(tx, &pf.hash, &pf.compressed, pf.original_size)?;
                 } else {
                     deduplicated_count += 1;
                 }
 
-                insert_file_stmt.execute(params![
+                store::insert_file(
+                    tx,
                     pkg_id,
-                    pf.relative_path,
-                    pf.hash,
+                    &pf.relative_path,
+                    &pf.hash,
                     pf.mode,
-                    pf.mtime
-                ])?;
+                    pf.mtime,
+                )?;
             }
         }
 
