@@ -1,11 +1,4 @@
-use anyhow::Result;
-use std::fs;
 use std::path::{Component, Path};
-
-pub fn ensure_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    Ok(())
-}
 
 pub fn is_safe_relative_path(path: &str) -> bool {
     let p = Path::new(path);

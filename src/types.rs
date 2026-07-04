@@ -1,6 +1,6 @@
-#![allow(dead_code)]
-
 use std::path::PathBuf;
+
+pub type ProgressFn<'a> = &'a dyn Fn(usize, usize, &str);
 
 #[derive(Debug, Clone)]
 pub struct FileEntry {
@@ -17,14 +17,6 @@ pub struct PackageInfo {
     pub name: String,
     pub version: String,
     pub path: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct BlobInfo {
-    pub hash: String,
-    pub content: Vec<u8>,
-    pub original_size: u64,
-    pub compressed_size: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -78,5 +70,3 @@ pub struct BlobStats {
     pub total_original_size: u64,
     pub total_compressed_size: u64,
 }
-
-pub type ProgressCallback = Box<dyn Fn(usize, usize, Option<&str>) + Send + Sync>;

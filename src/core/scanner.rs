@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use crate::types::{FileEntry, LinkEntry, PackageInfo};
+use crate::types::{FileEntry, LinkEntry, PackageInfo, ProgressFn};
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -300,7 +300,7 @@ fn scan_root_files(node_modules_path: &Path, use_pnpm: bool) -> Result<Option<Sc
 
 pub fn scan_node_modules(
     node_modules_path: &Path,
-    on_progress: Option<&dyn Fn(usize, usize, &str)>,
+    on_progress: Option<ProgressFn>,
 ) -> Result<ScanResult> {
     let use_pnpm = is_pnpm_structure(node_modules_path);
 
@@ -396,11 +396,3 @@ pub fn scan_empty_dirs(node_modules_path: &Path) -> Result<Vec<String>> {
     Ok(dirs)
 }
 
-pub fn count_files(node_modules_path: &Path) -> Result<usize> {
-    let count = WalkDir::new(node_modules_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .count();
-    Ok(count)
-}
