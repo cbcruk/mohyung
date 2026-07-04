@@ -120,6 +120,8 @@ mohyung status
 │  blobs      │ hash (PK), content (compressed), sizes        │
 ├─────────────┼───────────────────────────────────────────────┤
 │  files      │ package_id, relative_path, blob_hash, mode    │
+├─────────────┼───────────────────────────────────────────────┤
+│  links      │ path, target (symlinks)                       │
 └─────────────┴───────────────────────────────────────────────┘
 ```
 

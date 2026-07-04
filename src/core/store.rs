@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection, Transaction};
 
-use crate::types::{BlobInfo, BlobStats, FileRecord, FileRecordWithPath, PackageInfo};
+use crate::types::{BlobInfo, BlobStats, FileRecord, FileRecordWithPath, LinkEntry, PackageInfo};
 
 const SCHEMA_VERSION: &str = "1";
 
@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS files (
   mode INTEGER,
   mtime INTEGER,
   UNIQUE(package_id, relative_path)
+);
+
+CREATE TABLE IF NOT EXISTS links (
+  path TEXT PRIMARY KEY,
+  target TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_package ON files(package_id);
@@ -177,6 +182,24 @@ impl Store {
             files.push(row?);
         }
         Ok(files)
+    }
+
+    pub fn get_all_links(&self) -> Result<Vec<LinkEntry>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, target FROM links ORDER BY path")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(LinkEntry {
+                path: row.get(0)?,
+                target: row.get(1)?,
+            })
+        })?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row?);
+        }
+        Ok(links)
     }
 
     pub fn get_total_file_count(&self) -> Result<usize> {

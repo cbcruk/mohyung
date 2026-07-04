@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use crate::types::{FileEntry, PackageInfo};
+use crate::types::{FileEntry, LinkEntry, PackageInfo};
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -244,6 +244,34 @@ pub fn scan_node_modules(
         total_files,
         total_size,
     })
+}
+
+pub fn scan_symlinks(node_modules_path: &Path) -> Result<Vec<LinkEntry>> {
+    let mut links = Vec::new();
+
+    for entry in WalkDir::new(node_modules_path)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.path_is_symlink() {
+            continue;
+        }
+
+        let target = fs::read_link(entry.path())?;
+        let path = entry
+            .path()
+            .strip_prefix(node_modules_path)?
+            .to_string_lossy()
+            .to_string();
+
+        links.push(LinkEntry {
+            path,
+            target: target.to_string_lossy().to_string(),
+        });
+    }
+
+    Ok(links)
 }
 
 pub fn count_files(node_modules_path: &Path) -> Result<usize> {

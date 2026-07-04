@@ -44,6 +44,12 @@ pub struct FileRecordWithPath {
 }
 
 #[derive(Debug, Clone)]
+pub struct LinkEntry {
+    pub path: String,
+    pub target: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct PackOptions {
     pub output: String,
     pub source: String,

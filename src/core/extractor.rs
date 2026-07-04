@@ -81,6 +81,42 @@ pub fn extract_files(
     Ok((total_files, total_size))
 }
 
+pub fn restore_links(store: &Store, output_path: &Path) -> Result<usize> {
+    let links = store.get_all_links()?;
+
+    for link in &links {
+        let link_path = output_path.join(&link.path);
+        if let Some(parent) = link_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&link.target, &link_path)?;
+
+        #[cfg(windows)]
+        {
+            let resolved = link_path
+                .parent()
+                .map(|p| p.join(&link.target))
+                .unwrap_or_else(|| Path::new(&link.target).to_path_buf());
+            let result = if resolved.is_dir() {
+                std::os::windows::fs::symlink_dir(&link.target, &link_path)
+            } else {
+                std::os::windows::fs::symlink_file(&link.target, &link_path)
+            };
+            if let Err(e) = result {
+                eprintln!(
+                    "Warning: failed to create symlink {}: {}",
+                    link_path.display(),
+                    e
+                );
+            }
+        }
+    }
+
+    Ok(links.len())
+}
+
 pub fn extract_files_parallel(
     store: &Store,
     output_path: &Path,

@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::core::hasher::{hash_buffer, hash_string};
-use crate::core::scanner::scan_node_modules;
+use crate::core::scanner::{scan_node_modules, scan_symlinks};
 use crate::core::store::Store;
 use crate::types::PackOptions;
 use crate::utils::compression::compress;
@@ -47,10 +47,13 @@ pub fn pack(options: &PackOptions) -> Result<()> {
     }))?;
     scan_pb.finish_and_clear();
 
+    let links = scan_symlinks(&node_modules_path)?;
+
     eprintln!(
-        "Found {} packages, {} files ({})",
+        "Found {} packages, {} files, {} symlinks ({})",
         scan_result.packages.len(),
         scan_result.total_files,
+        links.len(),
         format_bytes(scan_result.total_size),
     );
 
@@ -150,6 +153,13 @@ pub fn pack(options: &PackOptions) -> Result<()> {
                mode = excluded.mode,
                mtime = excluded.mtime",
         )?;
+        let mut insert_link_stmt = tx.prepare_cached(
+            "INSERT OR REPLACE INTO links (path, target) VALUES (?1, ?2)",
+        )?;
+
+        for link in &links {
+            insert_link_stmt.execute(params![link.path, link.target])?;
+        }
 
         let mut package_ids: Vec<Option<i64>> = vec![None; scan_result.packages.len()];
 
@@ -207,6 +217,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
             &format!("DB size: {}", format_bytes(db_size)),
             &format!("Compression: {:.1}%", compression_ratio),
             &format!("Deduplicated: {}", deduplicated_count),
+            &format!("Symlinks: {}", links.len()),
         ],
         "\x1b[32m",
     );
