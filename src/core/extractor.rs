@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::core::store::Store;
 use crate::utils::compression::decompress;
+use crate::utils::fs::is_safe_relative_path;
 use crate::utils::progress::truncate_message;
 
 struct ExtractedFile {
@@ -85,6 +86,10 @@ pub fn restore_links(store: &Store, output_path: &Path) -> Result<usize> {
     let links = store.get_all_links()?;
 
     for link in &links {
+        if !is_safe_relative_path(&link.path) {
+            bail!("unsafe link path in database: {}", link.path);
+        }
+
         let link_path = output_path.join(&link.path);
         if let Some(parent) = link_path.parent() {
             fs::create_dir_all(parent)?;
@@ -135,6 +140,16 @@ pub fn extract_files_parallel(
         let mut prepared: Vec<ExtractedFile> = Vec::with_capacity(chunk.len());
 
         for file in chunk {
+            if !is_safe_relative_path(&file.package_path)
+                || !is_safe_relative_path(&file.record.relative_path)
+            {
+                bail!(
+                    "unsafe path in database: {}/{}",
+                    file.package_path,
+                    file.record.relative_path
+                );
+            }
+
             let content = match &last_blob {
                 Some((hash, data)) if *hash == file.record.blob_hash => Arc::clone(data),
                 _ => {

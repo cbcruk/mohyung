@@ -1,10 +1,23 @@
 use anyhow::Result;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 
 pub fn ensure_dir(path: &Path) -> Result<()> {
     fs::create_dir_all(path)?;
     Ok(())
+}
+
+pub fn is_safe_relative_path(path: &str) -> bool {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        return false;
+    }
+    !p.components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir
+        )
+    })
 }
 
 pub fn format_bytes(bytes: u64) -> String {
@@ -24,6 +37,15 @@ pub fn format_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_safe_relative_path() {
+        assert!(is_safe_relative_path("foo/bar.js"));
+        assert!(is_safe_relative_path(".bin/foo"));
+        assert!(!is_safe_relative_path("../escape"));
+        assert!(!is_safe_relative_path("foo/../../escape"));
+        assert!(!is_safe_relative_path("/etc/passwd"));
+    }
 
     #[test]
     fn test_format_bytes() {
