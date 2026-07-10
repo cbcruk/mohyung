@@ -129,7 +129,7 @@ mohyung status
 
 - Uses SHA-256 hash of file content as key
 - Identical files are stored only once
-- gzip compression for storage efficiency
+- zstd compression for storage efficiency
 
 ## Requirements
 

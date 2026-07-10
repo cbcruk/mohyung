@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OpenFlags, Transaction};
 
 use crate::types::{BlobStats, FileRecord, FileRecordWithPath, LinkEntry, PackageInfo};
 
-const SCHEMA_VERSION: &str = "2";
+const SCHEMA_VERSION: &str = "3";
 
 const CREATE_TABLES_SQL: &str = "
 CREATE TABLE IF NOT EXISTS metadata (
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS packages (
 );
 
 CREATE TABLE IF NOT EXISTS blobs (
-  hash TEXT PRIMARY KEY,
+  hash BLOB PRIMARY KEY,
   content BLOB NOT NULL,
   original_size INTEGER,
   compressed_size INTEGER
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   package_id INTEGER REFERENCES packages(id),
   relative_path TEXT NOT NULL,
-  blob_hash TEXT REFERENCES blobs(hash),
+  blob_hash BLOB REFERENCES blobs(hash),
   mode INTEGER,
   mtime INTEGER,
   UNIQUE(package_id, relative_path)
@@ -63,7 +63,12 @@ pub fn insert_package(tx: &Transaction, pkg: &PackageInfo) -> Result<i64> {
     Ok(id)
 }
 
-pub fn insert_blob(tx: &Transaction, hash: &str, content: &[u8], original_size: u64) -> Result<()> {
+pub fn insert_blob(
+    tx: &Transaction,
+    hash: &[u8],
+    content: &[u8],
+    original_size: u64,
+) -> Result<()> {
     let mut stmt = tx.prepare_cached(
         "INSERT OR IGNORE INTO blobs (hash, content, original_size, compressed_size)
          VALUES (?1, ?2, ?3, ?4)",
@@ -76,7 +81,7 @@ pub fn insert_file(
     tx: &Transaction,
     package_id: i64,
     relative_path: &str,
-    blob_hash: &str,
+    blob_hash: &[u8],
     mode: u32,
     mtime: i64,
 ) -> Result<()> {
@@ -163,7 +168,7 @@ impl Store {
         Ok(result)
     }
 
-    pub fn get_blob(&self, hash: &str) -> Result<Option<Vec<u8>>> {
+    pub fn get_blob(&self, hash: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT content FROM blobs WHERE hash = ?1")?;

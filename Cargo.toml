@@ -14,7 +14,7 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
-flate2 = "1.0"
+zstd = "0.13"
 rayon = "1.10"
 walkdir = "2"
 indicatif = "0.17"

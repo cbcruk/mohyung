@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::types::{FileEntry, LinkEntry, PackageInfo, ProgressFn};
+use crate::utils::fs::normalize_separators;
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -216,10 +217,7 @@ fn to_file_entry(entry: &walkdir::DirEntry, base: &Path) -> Result<FileEntry> {
         .metadata()
         .with_context(|| format!("failed to read metadata: {}", entry.path().display()))?;
     let absolute_path = entry.path().to_path_buf();
-    let relative_path = absolute_path
-        .strip_prefix(base)?
-        .to_string_lossy()
-        .to_string();
+    let relative_path = normalize_separators(&absolute_path.strip_prefix(base)?.to_string_lossy());
 
     #[cfg(unix)]
     let mode = {
@@ -350,15 +348,16 @@ pub fn scan_symlinks(node_modules_path: &Path) -> Result<Vec<LinkEntry>> {
         }
 
         let target = fs::read_link(entry.path())?;
-        let path = entry
-            .path()
-            .strip_prefix(node_modules_path)?
-            .to_string_lossy()
-            .to_string();
+        let path = normalize_separators(
+            &entry
+                .path()
+                .strip_prefix(node_modules_path)?
+                .to_string_lossy(),
+        );
 
         links.push(LinkEntry {
             path,
-            target: target.to_string_lossy().to_string(),
+            target: normalize_separators(&target.to_string_lossy()),
         });
     }
 
@@ -377,11 +376,12 @@ pub fn scan_empty_dirs(node_modules_path: &Path) -> Result<Vec<String>> {
             continue;
         }
 
-        let path = entry
-            .path()
-            .strip_prefix(node_modules_path)?
-            .to_string_lossy()
-            .to_string();
+        let path = normalize_separators(
+            &entry
+                .path()
+                .strip_prefix(node_modules_path)?
+                .to_string_lossy(),
+        );
         dirs.push(path);
     }
 

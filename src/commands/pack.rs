@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
@@ -20,8 +20,10 @@ pub const LOCKFILE_NAMES: [&str; 3] = ["package-lock.json", "pnpm-lock.yaml", "y
 
 struct ProcessedFile {
     package_index: usize,
-    hash: String,
-    compressed: Vec<u8>,
+    hash: [u8; 32],
+    /// `Some` only when this hash was not yet seen when the batch started, so
+    /// its blob still needs storing. Duplicates skip compression entirely.
+    compressed: Option<Vec<u8>>,
     original_size: u64,
     mode: u32,
     mtime: i64,
@@ -116,7 +118,7 @@ pub fn pack(options: &PackOptions) -> Result<()> {
         .collect();
 
     let mut deduplicated_count: usize = 0;
-    let mut seen_hashes = std::collections::HashSet::new();
+    let mut seen_hashes: std::collections::HashSet<[u8; 32]> = std::collections::HashSet::new();
 
     store.transaction(|tx| {
         for link in &links {
@@ -136,7 +138,15 @@ pub fn pack(options: &PackOptions) -> Result<()> {
                         format!("failed to read {}", file.absolute_path.display())
                     })?;
                     let hash = hash_buffer(&content);
-                    let compressed = compress(&content, compression_level);
+
+                    // Skip compression for blobs already stored by an earlier
+                    // batch; `seen_hashes` only grows between batches, so this
+                    // read is stable for the duration of the parallel map.
+                    let compressed = if seen_hashes.contains(&hash) {
+                        None
+                    } else {
+                        Some(compress(&content, compression_level as i32)?)
+                    };
 
                     let count = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
                     pack_pb.set_position(count as u64);
@@ -164,8 +174,11 @@ pub fn pack(options: &PackOptions) -> Result<()> {
                     id
                 };
 
-                if seen_hashes.insert(pf.hash.clone()) {
-                    store::insert_blob(tx, &pf.hash, &pf.compressed, pf.original_size)?;
+                if seen_hashes.insert(pf.hash) {
+                    let compressed = pf.compressed.ok_or_else(|| {
+                        anyhow!("internal: missing compressed data for a new blob")
+                    })?;
+                    store::insert_blob(tx, &pf.hash, &compressed, pf.original_size)?;
                 } else {
                     deduplicated_count += 1;
                 }

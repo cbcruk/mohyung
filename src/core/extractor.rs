@@ -1,9 +1,11 @@
 use anyhow::{anyhow, bail, Context, Result};
 use rayon::prelude::*;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::core::hasher::to_hex;
 use crate::core::store::Store;
 use crate::types::ProgressFn;
 use crate::utils::compression::decompress;
@@ -12,6 +14,8 @@ use crate::utils::fs::is_safe_relative_path;
 struct ExtractedFile {
     full_path: String,
     content: Arc<Vec<u8>>,
+    // Only consumed by the `#[cfg(unix)]` permission-setting path below.
+    #[cfg_attr(not(unix), allow(dead_code))]
     mode: u32,
     mtime: i64,
 }
@@ -81,11 +85,10 @@ pub fn extract_files_parallel(
 
     let mut total_size: u64 = 0;
     let mut written: usize = 0;
-    let mut last_blob: Option<(String, Arc<Vec<u8>>)> = None;
 
     for chunk in files.chunks(BATCH_SIZE) {
-        let mut prepared: Vec<ExtractedFile> = Vec::with_capacity(chunk.len());
-
+        // Validate every path before touching blob data, so a malicious DB is
+        // rejected up front rather than failing later during decompression.
         for file in chunk {
             if !is_safe_relative_path(&file.package_path)
                 || !is_safe_relative_path(&file.record.relative_path)
@@ -96,22 +99,47 @@ pub fn extract_files_parallel(
                     file.record.relative_path
                 );
             }
+        }
 
-            let content = match &last_blob {
-                Some((hash, data)) if *hash == file.record.blob_hash => Arc::clone(data),
-                _ => {
-                    let compressed = store.get_blob(&file.record.blob_hash)?.ok_or_else(|| {
-                        anyhow!(
-                            "blob {} missing for {}",
-                            file.record.blob_hash,
-                            file.record.relative_path
-                        )
-                    })?;
-                    let decompressed = Arc::new(decompress(&compressed)?);
-                    last_blob = Some((file.record.blob_hash.clone(), Arc::clone(&decompressed)));
-                    decompressed
-                }
-            };
+        // Fetch each distinct compressed blob once (DB access must stay serial:
+        // rusqlite Connection is not Sync). Files are ordered by blob_hash, so a
+        // blob's files are contiguous and the distinct set per chunk is small.
+        let mut order: Vec<&[u8]> = Vec::new();
+        let mut seen: HashSet<&[u8]> = HashSet::new();
+        for file in chunk {
+            if seen.insert(&file.record.blob_hash) {
+                order.push(&file.record.blob_hash);
+            }
+        }
+
+        let compressed: Vec<(&[u8], Vec<u8>)> = order
+            .into_iter()
+            .map(|hash| {
+                let data = store
+                    .get_blob(hash)?
+                    .ok_or_else(|| anyhow!("blob {} missing in database", to_hex(hash)))?;
+                Ok((hash, data))
+            })
+            .collect::<Result<_>>()?;
+
+        // Decompression is CPU-bound; run it in parallel across distinct blobs.
+        let blobs: HashMap<&[u8], Arc<Vec<u8>>> = compressed
+            .par_iter()
+            .map(|(hash, data)| Ok((*hash, Arc::new(decompress(data)?))))
+            .collect::<Result<_>>()?;
+
+        let mut prepared: Vec<ExtractedFile> = Vec::with_capacity(chunk.len());
+        for file in chunk {
+            let content = blobs
+                .get(file.record.blob_hash.as_slice())
+                .cloned()
+                .ok_or_else(|| {
+                    anyhow!(
+                        "blob {} missing for {}",
+                        to_hex(&file.record.blob_hash),
+                        file.record.relative_path
+                    )
+                })?;
 
             let full_path = Path::new(output_path)
                 .join(&file.package_path)
