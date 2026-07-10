@@ -13,6 +13,18 @@ pub fn is_safe_relative_path(path: &str) -> bool {
     })
 }
 
+/// Normalize OS path separators to `/` so stored paths are portable across
+/// platforms (a DB packed on Windows must restore correctly on Unix, and vice
+/// versa). No-op where the platform separator is already `/`, which also leaves
+/// legitimate backslashes in Unix filenames untouched.
+pub fn normalize_separators(path: &str) -> String {
+    if std::path::MAIN_SEPARATOR == '/' {
+        path.to_string()
+    } else {
+        path.replace(std::path::MAIN_SEPARATOR, "/")
+    }
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
 
