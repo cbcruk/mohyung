@@ -14,6 +14,8 @@ use crate::utils::fs::is_safe_relative_path;
 struct ExtractedFile {
     full_path: String,
     content: Arc<Vec<u8>>,
+    // Only consumed by the `#[cfg(unix)]` permission-setting path below.
+    #[cfg_attr(not(unix), allow(dead_code))]
     mode: u32,
     mtime: i64,
 }
