@@ -324,8 +324,8 @@ fn unpack_rejects_path_traversal() {
                     path: "evil".to_string(),
                 },
             )?;
-            store::insert_blob(tx, "deadbeef", b"payload", 7)?;
-            store::insert_file(tx, pkg_id, "../../evil.txt", "deadbeef", 0o644, 0)?;
+            store::insert_blob(tx, b"deadbeef", b"payload", 7)?;
+            store::insert_file(tx, pkg_id, "../../evil.txt", b"deadbeef", 0o644, 0)?;
             Ok(())
         })
         .unwrap();

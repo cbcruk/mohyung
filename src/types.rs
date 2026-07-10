@@ -24,7 +24,7 @@ pub struct FileRecord {
     pub id: Option<i64>,
     pub package_id: i64,
     pub relative_path: String,
-    pub blob_hash: String,
+    pub blob_hash: Vec<u8>,
     pub mode: u32,
     pub mtime: i64,
 }

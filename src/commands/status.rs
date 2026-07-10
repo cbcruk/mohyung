@@ -60,7 +60,7 @@ pub fn status(db: &str, node_modules: &str, verbose: bool) -> Result<StatusResul
         match std::fs::read(&full_path) {
             Ok(content) => {
                 let fs_hash = hash_buffer(&content);
-                if fs_hash != file.record.blob_hash {
+                if fs_hash.as_slice() != file.record.blob_hash.as_slice() {
                     result.lock().unwrap().modified.push(relative_path);
                 } else {
                     result.lock().unwrap().unchanged += 1;
