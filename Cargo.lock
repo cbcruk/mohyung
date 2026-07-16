@@ -469,6 +469,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "indicatif",
+ "libc",
  "predicates",
  "rayon",
  "rusqlite",

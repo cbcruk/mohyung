@@ -7,9 +7,12 @@
 //! and become pure link operations — the same idea global-virtual-store package
 //! managers (pnpm/Nub/aube) use to make warm installs fast.
 //!
-//! Link ladder (best → safest): reflink → hardlink → copy. Only hardlink and
-//! copy are implemented here; reflink (FICLONE / clonefile) is the intended top
-//! rung on copy-on-write filesystems (Btrfs/XFS/APFS) and is a drop-in addition.
+//! Link ladder (best → safest): reflink → hardlink → copy.
+//! - reflink (Linux FICLONE / macOS clonefile) gives an independent copy-on-write
+//!   inode, so it is safe for any mode and survives edits — used when the store
+//!   and output share a CoW filesystem (Btrfs/XFS/APFS).
+//! - hardlink shares the store inode; used for 0644 files on non-CoW filesystems.
+//! - copy is the universal fallback (and carries executable bits).
 
 use anyhow::{anyhow, bail, Context, Result};
 use rayon::prelude::*;
@@ -32,6 +35,7 @@ const STORE_BLOB_MODE: u32 = 0o644;
 
 #[derive(Debug, Default)]
 pub struct LinkStats {
+    pub reflinked: usize,
     pub hardlinked: usize,
     pub copied: usize,
     /// Blobs decompressed and written to the store during this run (cold).
@@ -139,16 +143,103 @@ fn materialize_blob(store_dir: &Path, hex: &str, bytes: &[u8]) -> Result<bool> {
 }
 
 enum Placed {
+    Reflinked,
     Hardlinked,
     Copied,
 }
 
-/// Place a store blob at `dest`: hardlink when the permission matches the store
-/// inode (0644), otherwise copy so we never mutate the shared inode's mode.
-fn place(store_path: &Path, dest: &Path, perm: u32) -> Result<Placed> {
+/// Clone `src` to a new file at `dst` via a copy-on-write reflink, giving `dst`
+/// permission `mode`. `dst` must not already exist. Content is shared until
+/// either side is written; the two inodes are otherwise independent, so editing
+/// a restored file never touches the store blob and any `mode` is safe.
+#[cfg(target_os = "linux")]
+fn reflink(src: &Path, dst: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+
+    // FICLONE = _IOW(0x94, 9, int)
+    const FICLONE: libc::c_ulong = 0x4004_9409;
+
+    let src_f = std::fs::File::open(src)?;
+    // Create with the final mode so no extra chmod syscall is needed per file.
+    let dst_f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(dst)?;
+    let ret = unsafe { libc::ioctl(dst_f.as_raw_fd(), FICLONE, src_f.as_raw_fd()) };
+    if ret == 0 {
+        return Ok(());
+    }
+    let err = std::io::Error::last_os_error();
+    drop(dst_f);
+    let _ = std::fs::remove_file(dst);
+    Err(err)
+}
+
+#[cfg(target_os = "macos")]
+fn reflink(src: &Path, dst: &Path, mode: u32) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let src_c = CString::new(src.as_os_str().as_bytes())?;
+    let dst_c = CString::new(dst.as_os_str().as_bytes())?;
+    // clonefile clones metadata too, so dst inherits the store blob's mode.
+    let ret = unsafe { libc::clonefile(src_c.as_ptr(), dst_c.as_ptr(), 0) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if mode != STORE_BLOB_MODE {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dst, std::fs::Permissions::from_mode(mode))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn reflink(_src: &Path, _dst: &Path, _mode: u32) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "reflink not supported on this platform",
+    ))
+}
+
+/// Probe once whether blobs can be reflinked from the store into the output
+/// (same filesystem + copy-on-write support). Avoids a failed reflink syscall
+/// per file on filesystems like ext4 that don't support it.
+fn reflink_supported(store_dir: &Path, output_path: &Path) -> bool {
+    // Escape hatch: prefer hardlinks even on a CoW filesystem (stronger on-disk
+    // dedup via shared inodes; also used to isolate the two paths in benchmarks).
+    if std::env::var_os("MOHYUNG_NO_REFLINK").is_some() {
+        return false;
+    }
+    if std::fs::create_dir_all(store_dir).is_err() || std::fs::create_dir_all(output_path).is_err()
+    {
+        return false;
+    }
+    let src = store_dir.join(".mohyung-reflink-probe.src");
+    let dst = output_path.join(".mohyung-reflink-probe.dst");
+    let _ = std::fs::remove_file(&dst);
+    if std::fs::write(&src, b"probe").is_err() {
+        return false;
+    }
+    let ok = reflink(&src, &dst, STORE_BLOB_MODE).is_ok();
+    let _ = std::fs::remove_file(&src);
+    let _ = std::fs::remove_file(&dst);
+    ok
+}
+
+/// Place a store blob at `dest`. On a CoW filesystem reflink (safe for any mode);
+/// otherwise hardlink when the permission matches the store inode (0644), else
+/// copy so we never mutate the shared inode's mode.
+fn place(store_path: &Path, dest: &Path, perm: u32, use_reflink: bool) -> Result<Placed> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    if use_reflink && reflink(store_path, dest, perm).is_ok() {
+        return Ok(Placed::Reflinked);
     }
 
     // Cross-device link or similar falls through to copy.
@@ -178,10 +269,13 @@ pub fn extract_files_linked(
     let files = store.get_all_files()?;
     let total_files = files.len();
 
+    let use_reflink = reflink_supported(store_dir, output_path);
+
     let mut total_size: u64 = 0;
     let mut written: usize = 0;
     let materialized = AtomicUsize::new(0);
     let reused = AtomicUsize::new(0);
+    let reflinked = AtomicUsize::new(0);
     let hardlinked = AtomicUsize::new(0);
     let copied = AtomicUsize::new(0);
 
@@ -267,7 +361,8 @@ pub fn extract_files_linked(
                 let dest = output_path
                     .join(&file.package_path)
                     .join(&file.record.relative_path);
-                match place(&src, &dest, desired_perm(file.record.mode))? {
+                match place(&src, &dest, desired_perm(file.record.mode), use_reflink)? {
+                    Placed::Reflinked => reflinked.fetch_add(1, Ordering::Relaxed),
                     Placed::Hardlinked => hardlinked.fetch_add(1, Ordering::Relaxed),
                     Placed::Copied => copied.fetch_add(1, Ordering::Relaxed),
                 };
@@ -285,6 +380,7 @@ pub fn extract_files_linked(
         total_files,
         total_size,
         LinkStats {
+            reflinked: reflinked.into_inner(),
             hardlinked: hardlinked.into_inner(),
             copied: copied.into_inner(),
             blobs_materialized: materialized.into_inner(),

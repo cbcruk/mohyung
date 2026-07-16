@@ -85,7 +85,10 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
                     format_bytes(total_size)
                 ),
                 &format!("Store: {}", store_dir.display()),
-                &format!("Hardlinked: {}  Copied: {}", stats.hardlinked, stats.copied),
+                &format!(
+                    "Reflinked: {}  Hardlinked: {}  Copied: {}",
+                    stats.reflinked, stats.hardlinked, stats.copied
+                ),
                 &format!(
                     "Blobs materialized: {}  reused: {}",
                     stats.blobs_materialized, stats.blobs_reused
