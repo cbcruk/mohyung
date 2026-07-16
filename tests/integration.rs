@@ -212,6 +212,23 @@ fn npm_link_roundtrip_is_lossless() {
         .success()
         .stderr(predicate::str::contains("reused"));
     assert_trees_equal(&nm, &restored2);
+
+    // --reflink implies link mode; where the filesystem lacks CoW support it
+    // transparently falls back to hardlink/copy and still reproduces the tree.
+    let restored3 = dir.path().join("restored-reflink");
+    mohyung()
+        .env("MOHYUNG_STORE", store.to_str().unwrap())
+        .args([
+            "unpack",
+            "--reflink",
+            "-i",
+            db.to_str().unwrap(),
+            "-o",
+            restored3.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_trees_equal(&nm, &restored3);
 }
 
 #[test]

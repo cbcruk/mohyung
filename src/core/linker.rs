@@ -7,11 +7,16 @@
 //! and become pure link operations — the same idea global-virtual-store package
 //! managers (pnpm/Nub/aube) use to make warm installs fast.
 //!
-//! Link ladder (best → safest): reflink → hardlink → copy.
-//! - reflink (Linux FICLONE / macOS clonefile) gives an independent copy-on-write
-//!   inode, so it is safe for any mode and survives edits — used when the store
-//!   and output share a CoW filesystem (Btrfs/XFS/APFS).
-//! - hardlink shares the store inode; used for 0644 files on non-CoW filesystems.
+//! Link strategy:
+//! - hardlink (default) shares the store inode — one `link()` syscall per file,
+//!   the fastest option and strongest on-disk dedup. Used for 0644 files; it
+//!   treats `node_modules` as immutable (editing a restored file mutates the
+//!   store), which is the convention for installed dependencies.
+//! - reflink (opt-in, Linux FICLONE / macOS clonefile) gives an independent
+//!   copy-on-write inode, so it is safe for any mode and survives edits — but
+//!   creates a new inode per file, so it is heavier than hardlink. Used only
+//!   when requested (`--reflink`) and the store and output share a CoW
+//!   filesystem (Btrfs/XFS/APFS).
 //! - copy is the universal fallback (and carries executable bits).
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -208,11 +213,6 @@ fn reflink(_src: &Path, _dst: &Path, _mode: u32) -> std::io::Result<()> {
 /// (same filesystem + copy-on-write support). Avoids a failed reflink syscall
 /// per file on filesystems like ext4 that don't support it.
 fn reflink_supported(store_dir: &Path, output_path: &Path) -> bool {
-    // Escape hatch: prefer hardlinks even on a CoW filesystem (stronger on-disk
-    // dedup via shared inodes; also used to isolate the two paths in benchmarks).
-    if std::env::var_os("MOHYUNG_NO_REFLINK").is_some() {
-        return false;
-    }
     if std::fs::create_dir_all(store_dir).is_err() || std::fs::create_dir_all(output_path).is_err()
     {
         return false;
@@ -264,12 +264,15 @@ pub fn extract_files_linked(
     store: &Store,
     output_path: &Path,
     store_dir: &Path,
+    reflink_requested: bool,
     on_progress: Option<ProgressFn>,
 ) -> Result<(usize, u64, LinkStats)> {
     let files = store.get_all_files()?;
     let total_files = files.len();
 
-    let use_reflink = reflink_supported(store_dir, output_path);
+    // Hardlink is the default (fastest for immutable node_modules); reflink is
+    // opt-in and only used when both requested and supported by the filesystem.
+    let use_reflink = reflink_requested && reflink_supported(store_dir, output_path);
 
     let mut total_size: u64 = 0;
     let mut written: usize = 0;

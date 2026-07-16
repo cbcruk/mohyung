@@ -44,6 +44,12 @@ enum Commands {
         /// copy fallback) instead of writing each file. Fast for repeated restores.
         #[arg(short = 'l', long)]
         link: bool,
+
+        /// Prefer copy-on-write reflinks over hardlinks where the filesystem
+        /// supports them (Btrfs/XFS/APFS). Safer for editing restored files;
+        /// implies --link.
+        #[arg(long)]
+        reflink: bool,
     },
 
     /// Compare DB with current node_modules
@@ -79,11 +85,13 @@ fn main() {
             output,
             force,
             link,
+            reflink,
         } => commands::unpack::unpack(&types::UnpackOptions {
             input,
             output,
             force,
             link,
+            reflink,
         }),
         Commands::Status {
             db,

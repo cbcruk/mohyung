@@ -67,10 +67,15 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
 
     let start = Instant::now();
 
-    if options.link {
+    if options.link || options.reflink {
         let store_dir = resolve_store_dir();
-        let (total_files, total_size, stats) =
-            extract_files_linked(&store, output_path, &store_dir, Some(&progress))?;
+        let (total_files, total_size, stats) = extract_files_linked(
+            &store,
+            output_path,
+            &store_dir,
+            options.reflink,
+            Some(&progress),
+        )?;
         restore_empty_dirs(&store, output_path)?;
         let link_count = restore_links(&store, output_path)?;
         let elapsed = start.elapsed().as_secs_f64();
