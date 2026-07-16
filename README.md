@@ -62,6 +62,8 @@ Options:
   -i, --input <path>   input DB file path (default: "./node_modules.db")
   -o, --output <path>  output directory (default: "./node_modules")
   -f, --force          overwrite existing node_modules
+  -l, --link           link from a local store instead of writing each file
+  --reflink            prefer copy-on-write reflinks (implies --link)
 ```
 
 **Examples:**
@@ -75,7 +77,26 @@ mohyung unpack -f
 
 # Restore to different location
 mohyung unpack -o ./restored_modules
+
+# Fast restore by linking from a local content-addressable store
+mohyung unpack --link
 ```
+
+#### Link restore (`--link`)
+
+With `--link`, each distinct blob is decompressed **once** into a machine-local
+store (`$MOHYUNG_STORE`, else `$XDG_CACHE_HOME/mohyung/store`) and hardlinked into
+`node_modules` instead of being written byte-for-byte. Repeated ("warm") restores
+of the same snapshot skip decompression entirely and become pure link operations
+— roughly 3–4× faster in benchmarks — and identical files share a single inode on
+disk.
+
+- **`--link`** (default): hardlink. Fastest, strongest dedup. Treats
+  `node_modules` as immutable — editing a restored file also changes the shared
+  store blob. Executable files fall back to copy.
+- **`--reflink`**: prefer copy-on-write reflinks (Btrfs/XFS/APFS) so restored
+  files are independent and safe to edit. Falls back to hardlink/copy where the
+  filesystem has no CoW support.
 
 ### status - Compare DB with current state
 

@@ -163,6 +163,75 @@ fn npm_roundtrip_is_lossless() {
 }
 
 #[test]
+fn npm_link_roundtrip_is_lossless() {
+    let dir = TempDir::new().unwrap();
+    let nm = make_npm_fixture(dir.path());
+    let db = dir.path().join("nm.db");
+    let store = dir.path().join("store");
+
+    mohyung()
+        .args([
+            "pack",
+            "-s",
+            nm.to_str().unwrap(),
+            "-o",
+            db.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Cold restore: blobs are materialized into a fresh store, then linked.
+    let restored = dir.path().join("restored-link");
+    mohyung()
+        .env("MOHYUNG_STORE", store.to_str().unwrap())
+        .args([
+            "unpack",
+            "--link",
+            "-i",
+            db.to_str().unwrap(),
+            "-o",
+            restored.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_trees_equal(&nm, &restored);
+
+    // Warm restore: the store already holds every blob, so it is reused.
+    let restored2 = dir.path().join("restored-link-2");
+    mohyung()
+        .env("MOHYUNG_STORE", store.to_str().unwrap())
+        .args([
+            "unpack",
+            "--link",
+            "-i",
+            db.to_str().unwrap(),
+            "-o",
+            restored2.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("reused"));
+    assert_trees_equal(&nm, &restored2);
+
+    // --reflink implies link mode; where the filesystem lacks CoW support it
+    // transparently falls back to hardlink/copy and still reproduces the tree.
+    let restored3 = dir.path().join("restored-reflink");
+    mohyung()
+        .env("MOHYUNG_STORE", store.to_str().unwrap())
+        .args([
+            "unpack",
+            "--reflink",
+            "-i",
+            db.to_str().unwrap(),
+            "-o",
+            restored3.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_trees_equal(&nm, &restored3);
+}
+
+#[test]
 fn pnpm_roundtrip_is_lossless() {
     let dir = TempDir::new().unwrap();
     let nm = make_pnpm_fixture(dir.path());

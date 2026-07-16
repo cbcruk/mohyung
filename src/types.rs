@@ -54,6 +54,11 @@ pub struct UnpackOptions {
     pub input: String,
     pub output: String,
     pub force: bool,
+    /// Restore by linking from a local content-addressable store instead of
+    /// writing every file byte-for-byte.
+    pub link: bool,
+    /// Prefer copy-on-write reflinks over hardlinks where supported. Implies `link`.
+    pub reflink: bool,
 }
 
 #[derive(Debug, Clone, Default)]

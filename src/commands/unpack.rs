@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use crate::commands::pack::print_box;
 use crate::core::extractor::{extract_files_parallel, restore_empty_dirs, restore_links};
+use crate::core::linker::{extract_files_linked, resolve_store_dir};
 use crate::core::store::Store;
 use crate::types::UnpackOptions;
 use crate::utils::fs::format_bytes;
@@ -58,17 +59,55 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
 
     eprintln!("Extracting to {}", output_path.display());
     let pb = create_progress_bar(total_file_count as u64);
+    let progress = |current: usize, total: usize, msg: &str| {
+        pb.set_length(total as u64);
+        pb.set_position(current as u64);
+        pb.set_message(msg.to_string());
+    };
 
     let start = Instant::now();
-    let (total_files, total_size) = extract_files_parallel(
-        &store,
-        output_path,
-        Some(&|current, total, msg| {
-            pb.set_length(total as u64);
-            pb.set_position(current as u64);
-            pb.set_message(msg.to_string());
-        }),
-    )?;
+
+    if options.link || options.reflink {
+        let store_dir = resolve_store_dir();
+        let (total_files, total_size, stats) = extract_files_linked(
+            &store,
+            output_path,
+            &store_dir,
+            options.reflink,
+            Some(&progress),
+        )?;
+        restore_empty_dirs(&store, output_path)?;
+        let link_count = restore_links(&store, output_path)?;
+        let elapsed = start.elapsed().as_secs_f64();
+        pb.finish_and_clear();
+
+        print_box(
+            "Unpack Complete (link mode)",
+            &[
+                &format!(
+                    "Extracted: {} files ({})",
+                    total_files,
+                    format_bytes(total_size)
+                ),
+                &format!("Store: {}", store_dir.display()),
+                &format!(
+                    "Reflinked: {}  Hardlinked: {}  Copied: {}",
+                    stats.reflinked, stats.hardlinked, stats.copied
+                ),
+                &format!(
+                    "Blobs materialized: {}  reused: {}",
+                    stats.blobs_materialized, stats.blobs_reused
+                ),
+                &format!("Symlinks: {}", link_count),
+                &format!("Time: {:.2}s", elapsed),
+            ],
+            "\x1b[32m",
+        );
+
+        return Ok(());
+    }
+
+    let (total_files, total_size) = extract_files_parallel(&store, output_path, Some(&progress))?;
     restore_empty_dirs(&store, output_path)?;
     let link_count = restore_links(&store, output_path)?;
     let elapsed = start.elapsed().as_secs_f64();
@@ -83,7 +122,7 @@ pub fn unpack(options: &UnpackOptions) -> Result<()> {
                 format_bytes(total_size)
             ),
             &format!("Symlinks: {}", link_count),
-            &format!("Time: {:.1}s", elapsed),
+            &format!("Time: {:.2}s", elapsed),
         ],
         "\x1b[32m",
     );
