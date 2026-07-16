@@ -39,6 +39,11 @@ enum Commands {
 
         #[arg(short = 'f', long)]
         force: bool,
+
+        /// Restore by linking from a local content-addressable store (hardlink,
+        /// copy fallback) instead of writing each file. Fast for repeated restores.
+        #[arg(short = 'l', long)]
+        link: bool,
     },
 
     /// Compare DB with current node_modules
@@ -73,10 +78,12 @@ fn main() {
             input,
             output,
             force,
+            link,
         } => commands::unpack::unpack(&types::UnpackOptions {
             input,
             output,
             force,
+            link,
         }),
         Commands::Status {
             db,
